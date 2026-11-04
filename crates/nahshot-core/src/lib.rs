@@ -6,6 +6,8 @@ pub mod library;
 pub mod model;
 pub mod naming;
 pub mod sync;
+pub mod thumbs;
 pub mod watch;
 
 pub use error::{CoreError, Result};
+pub use thumbs::ThumbCache;
