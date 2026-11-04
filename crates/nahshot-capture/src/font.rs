@@ -24,6 +24,13 @@ impl Font {
         Err(last.into())
     }
 
+    /// Horizontal advance of `text` drawn at `size` pixels.
+    pub fn text_width(&self, text: &str, size: f32) -> f32 {
+        text.chars()
+            .map(|c| self.0.metrics(c, size).advance_width)
+            .sum()
+    }
+
     pub(crate) fn raw(&self) -> &fontdue::Font {
         &self.0
     }
@@ -43,5 +50,13 @@ mod tests {
     #[test]
     fn system_font_loads_on_dev_machine() {
         assert!(Font::system().is_ok());
+    }
+
+    #[test]
+    fn text_width_grows_with_text() {
+        let f = Font::system().expect("system font");
+        assert_eq!(f.text_width("", 20.0), 0.0);
+        assert!(f.text_width("ab", 20.0) > f.text_width("a", 20.0));
+        assert!(f.text_width("a", 40.0) > f.text_width("a", 20.0));
     }
 }

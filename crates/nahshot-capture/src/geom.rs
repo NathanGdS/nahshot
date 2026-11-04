@@ -20,11 +20,13 @@ pub struct PxRect {
 }
 
 impl PxRect {
-    fn right(&self) -> i32 {
+    /// One past the rightmost column.
+    pub fn right(&self) -> i32 {
         self.x + self.w as i32
     }
 
-    fn bottom(&self) -> i32 {
+    /// One past the bottom row.
+    pub fn bottom(&self) -> i32 {
         self.y + self.h as i32
     }
 
@@ -91,8 +93,23 @@ impl Edges {
     }
 }
 
+/// Pushes a dragged edge out of the band closer than [`MIN_SELECTION`] to the fixed edge,
+/// on whichever side the drag put it, so a resize never makes the selection vanish.
+fn keep_min_gap(moved: i32, fixed: i32) -> i32 {
+    let min = MIN_SELECTION as i32;
+    match moved - fixed {
+        d if d.abs() >= min => moved,
+        d if d < 0 => fixed - min,
+        _ => fixed + min,
+    }
+}
+
 /// The user's screenshot selection: created by dragging, then movable/resizable.
-#[derive(Debug, Default)]
+///
+/// Resizes are applied to the edges as they are; to keep a drag continuous when an
+/// edge crosses its opposite, clone the selection at drag start and re-apply each
+/// move to that snapshot (the handle never needs swapping that way).
+#[derive(Debug, Default, Clone)]
 pub struct Selection {
     anchor: Option<PxPoint>,
     edges: Option<Edges>,
@@ -159,16 +176,16 @@ impl Selection {
             };
         } else {
             if matches!(handle, Handle::W | Handle::NW | Handle::SW) {
-                e.l += dx;
+                e.l = keep_min_gap(e.l + dx, e.r);
             }
             if matches!(handle, Handle::E | Handle::NE | Handle::SE) {
-                e.r += dx;
+                e.r = keep_min_gap(e.r + dx, e.l);
             }
             if matches!(handle, Handle::N | Handle::NW | Handle::NE) {
-                e.t += dy;
+                e.t = keep_min_gap(e.t + dy, e.b);
             }
             if matches!(handle, Handle::S | Handle::SW | Handle::SE) {
-                e.b += dy;
+                e.b = keep_min_gap(e.b + dy, e.t);
             }
         }
         self.edges = Some(e.normalized());
@@ -243,5 +260,40 @@ mod tests {
                 h: 120
             })
         );
+    }
+
+    fn square_0_100() -> Selection {
+        let mut s = Selection::default();
+        s.begin(PxPoint { x: 0, y: 0 });
+        s.update(PxPoint { x: 100, y: 100 });
+        s
+    }
+
+    #[test]
+    fn resize_never_shrinks_below_min() {
+        let mut s = square_0_100();
+        s.drag(
+            Handle::SE,
+            PxPoint { x: 100, y: 100 },
+            PxPoint { x: 1, y: 2 },
+        );
+        let r = s.rect().expect("selection survives the resize");
+        assert_eq!((r.x, r.y, r.w, r.h), (0, 0, MIN_SELECTION, MIN_SELECTION));
+    }
+
+    #[test]
+    fn resize_from_snapshot_crosses_opposite_edge_continuously() {
+        let start = square_0_100();
+        let from = PxPoint { x: 0, y: 50 };
+        let drag_to = |x| {
+            let mut s = start.clone();
+            s.drag(Handle::W, from, PxPoint { x, y: 50 });
+            s.rect().map(|r| (r.x, r.w))
+        };
+        assert_eq!(drag_to(50), Some((50, 50)));
+        assert_eq!(drag_to(99), Some((97, 3)));
+        assert_eq!(drag_to(101), Some((100, 3)));
+        assert_eq!(drag_to(150), Some((100, 50)));
+        assert_eq!(drag_to(160), Some((100, 60)));
     }
 }

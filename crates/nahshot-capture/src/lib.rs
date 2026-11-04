@@ -4,6 +4,7 @@ pub mod annotate;
 pub mod font;
 pub mod geom;
 pub mod grab;
+pub mod overlay;
 pub mod render;
 
 /// Errors raised while capturing the screen or reacting to hotkeys.

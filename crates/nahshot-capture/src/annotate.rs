@@ -105,6 +105,11 @@ impl Annotations {
         self.shapes.pop()
     }
 
+    /// The topmost shape, for editing a shape while it is being drawn.
+    pub fn last_mut(&mut self) -> Option<&mut Shape> {
+        self.shapes.last_mut()
+    }
+
     /// Shapes in drawing order.
     pub fn shapes(&self) -> &[Shape] {
         &self.shapes
@@ -140,5 +145,20 @@ mod tests {
         assert!(a.undo().is_some());
         assert!(a.undo().is_none());
         assert!(a.is_empty());
+    }
+
+    #[test]
+    fn last_mut_edits_the_shape_in_progress() {
+        let mut a = Annotations::default();
+        assert!(a.last_mut().is_none());
+        a.push(Shape::Pen {
+            pts: vec![(0.0, 0.0)],
+            color: PALETTE[0],
+            width: STROKE_WIDTH,
+        });
+        if let Some(Shape::Pen { pts, .. }) = a.last_mut() {
+            pts.push((5.0, 5.0));
+        }
+        assert!(matches!(&a.shapes()[0], Shape::Pen { pts, .. } if pts.len() == 2));
     }
 }

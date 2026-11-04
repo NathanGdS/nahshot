@@ -73,8 +73,8 @@ pub fn crop(desktop: &Desktop, r: PxRect) -> RgbaImage {
     }
 }
 
-/// Returns a copy of `base` with the annotations drawn on top.
-pub fn flatten(base: &RgbaImage, ann: &Annotations, font: &Font) -> RgbaImage {
+/// Returns a copy of `base` with the annotations drawn on top (text needs `font`).
+pub fn flatten(base: &RgbaImage, ann: &Annotations, font: Option<&Font>) -> RgbaImage {
     if ann.is_empty() || base.width() == 0 || base.height() == 0 {
         return base.clone();
     }
@@ -87,8 +87,13 @@ pub fn flatten(base: &RgbaImage, ann: &Annotations, font: &Font) -> RgbaImage {
     RgbaImage::from_raw(base.width(), base.height(), data).expect("buffer size is unchanged")
 }
 
-/// Draws the shapes into `pixmap`, shifted by `offset`.
-pub fn draw_shapes(pixmap: &mut PixmapMut, offset: (f32, f32), ann: &Annotations, font: &Font) {
+/// Draws the shapes into `pixmap`, shifted by `offset`; text is skipped without a font.
+pub fn draw_shapes(
+    pixmap: &mut PixmapMut,
+    offset: (f32, f32),
+    ann: &Annotations,
+    font: Option<&Font>,
+) {
     let tf = Transform::from_translate(offset.0, offset.1);
     for shape in ann.shapes() {
         match shape {
@@ -119,8 +124,10 @@ pub fn draw_shapes(pixmap: &mut PixmapMut, offset: (f32, f32), ann: &Annotations
                 color,
                 size,
             } => {
-                let top_left = (at.0 + offset.0, at.1 + offset.1);
-                draw_text(pixmap, top_left, text, *color, *size, font);
+                if let Some(font) = font {
+                    let top_left = (at.0 + offset.0, at.1 + offset.1);
+                    draw_text(pixmap, top_left, text, *color, *size, font);
+                }
             }
         }
     }
@@ -133,8 +140,10 @@ fn paint(c: Color, alpha: f32) -> Paint<'static> {
     p
 }
 
+/// The box spanned by two corners; `None` while it has no area (e.g. right at press).
 fn rect_of(a: Pt, b: Pt) -> Option<Rect> {
     Rect::from_ltrb(a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1))
+        .filter(|r| r.width() > 0.0 && r.height() > 0.0)
 }
 
 fn stroke_path(pixmap: &mut PixmapMut, path: &Path, paint: Paint, width: f32, tf: Transform) {
@@ -198,7 +207,14 @@ fn draw_arrow(pixmap: &mut PixmapMut, a: Pt, b: Pt, color: Color, width: f32, tf
 }
 
 /// Draws `text` with its top-left at `at`, compositing glyph coverage directly.
-fn draw_text(pixmap: &mut PixmapMut, at: Pt, text: &str, color: Color, size: f32, font: &Font) {
+pub(crate) fn draw_text(
+    pixmap: &mut PixmapMut,
+    at: Pt,
+    text: &str,
+    color: Color,
+    size: f32,
+    font: &Font,
+) {
     let font = font.raw();
     let ascent = font
         .horizontal_line_metrics(size)
@@ -339,7 +355,7 @@ mod tests {
             color: PALETTE[0],
             width: 3.0,
         });
-        let out = flatten(&white(100, 100), &ann, &font());
+        let out = flatten(&white(100, 100), &ann, Some(&font()));
         assert_eq!(*out.get_pixel(10, 50), Rgba([0xE5, 0x39, 0x35, 255]));
         assert_eq!(*out.get_pixel(50, 50), WHITE);
     }
@@ -348,7 +364,7 @@ mod tests {
     fn flatten_empty_annotations_is_identity() {
         let mut base = white(30, 20);
         base.put_pixel(3, 4, Rgba([10, 20, 30, 200]));
-        let out = flatten(&base, &Annotations::default(), &font());
+        let out = flatten(&base, &Annotations::default(), Some(&font()));
         assert_eq!(out.as_raw(), base.as_raw());
     }
 
@@ -361,7 +377,7 @@ mod tests {
             color: PALETTE[0],
             width: 3.0,
         });
-        let out = flatten(&white(100, 100), &ann, &font());
+        let out = flatten(&white(100, 100), &ann, Some(&font()));
         // Head (side 12) is wide near the tip; the shaft alone is only 3px thick.
         assert_eq!(*out.get_pixel(85, 48), Rgba([0xE5, 0x39, 0x35, 255]));
         assert_eq!(*out.get_pixel(50, 46), WHITE);
@@ -376,7 +392,7 @@ mod tests {
             color: PALETTE[4],
             width: STROKE_WIDTH,
         });
-        let out = flatten(&white(100, 100), &ann, &font());
+        let out = flatten(&white(100, 100), &ann, Some(&font()));
         assert_eq!(*out.get_pixel(10, 50), Rgba([0x1E, 0x88, 0xE5, 255]));
         assert_eq!(*out.get_pixel(50, 50), WHITE);
     }
@@ -388,7 +404,7 @@ mod tests {
             pts: vec![(10.0, 50.0), (90.0, 50.0)],
             color: PALETTE[0],
         });
-        let out = flatten(&white(100, 100), &ann, &font());
+        let out = flatten(&white(100, 100), &ann, Some(&font()));
         let p = out.get_pixel(50, 50);
         // 0.35 * (229,57,53) + 0.65 * 255 = (246,186,184).
         assert!((p[0] as i32 - 246).abs() <= 2, "{p:?}");
@@ -407,7 +423,7 @@ mod tests {
             color: PALETTE[6],
             size: 20.0,
         });
-        let out = flatten(&white(60, 40), &ann, &font());
+        let out = flatten(&white(60, 40), &ann, Some(&font()));
         assert!(out.pixels().any(|p| p[0] < 100));
     }
 }
