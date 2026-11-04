@@ -1,0 +1,4 @@
+[workspace]
+resolver = "2"
+# "src-tauri" is added in Task 10, when the Tauri app exists.
+members = ["crates/*"]
