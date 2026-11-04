@@ -15,8 +15,8 @@ use crate::{CoreError, Result};
 
 /// The screenshot library: image files under `root` plus their metadata.
 pub struct Library {
-    root: PathBuf,
-    db: Db,
+    pub(crate) root: PathBuf,
+    pub(crate) db: Db,
 }
 
 /// Returns the album a file lives in, i.e. `Some(name)` for `root\Álbuns\name\file`.

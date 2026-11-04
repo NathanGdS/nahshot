@@ -12,6 +12,9 @@ pub enum CoreError {
     /// Image encoding or decoding failure.
     #[error("image error: {0}")]
     Image(#[from] image::ImageError),
+    /// Filesystem watcher failure.
+    #[error("watch error: {0}")]
+    Watch(#[from] notify::Error),
     /// A file or album name that violates the naming rules.
     #[error("invalid name: {0}")]
     InvalidName(String),

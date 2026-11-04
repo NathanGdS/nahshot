@@ -1,3 +1,5 @@
+mod common;
+
 use std::path::PathBuf;
 
 use chrono::NaiveDateTime;
@@ -5,11 +7,7 @@ use nahshot_core::library::{album_of, Library};
 use nahshot_core::model::{Filter, PrintId, Query, SortOrder};
 use nahshot_core::CoreError;
 
-fn lib() -> (tempfile::TempDir, Library) {
-    let dir = tempfile::tempdir().unwrap();
-    let lib = Library::open(dir.path().join("root"), &dir.path().join("db.sqlite")).unwrap();
-    (dir, lib)
-}
+use common::{lib, png};
 
 fn t(s: &str) -> NaiveDateTime {
     NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").unwrap()
@@ -17,13 +15,6 @@ fn t(s: &str) -> NaiveDateTime {
 
 fn t0() -> NaiveDateTime {
     t("2026-11-04 14:32:10")
-}
-
-fn png() -> Vec<u8> {
-    let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([255, 0, 0, 255]));
-    let mut out = std::io::Cursor::new(Vec::new());
-    img.write_to(&mut out, image::ImageFormat::Png).unwrap();
-    out.into_inner()
 }
 
 fn ids(lib: &Library, q: &Query) -> Vec<PrintId> {

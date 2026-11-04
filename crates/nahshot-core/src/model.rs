@@ -66,6 +66,17 @@ pub struct Query {
     pub order: SortOrder,
 }
 
+impl Default for Query {
+    /// Every print, no search, newest first.
+    fn default() -> Self {
+        Query {
+            filter: Filter::All,
+            search: None,
+            order: SortOrder::NewestFirst,
+        }
+    }
+}
+
 /// A screenshot together with its metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -5,5 +5,7 @@ pub mod error;
 pub mod library;
 pub mod model;
 pub mod naming;
+pub mod sync;
+pub mod watch;
 
 pub use error::{CoreError, Result};
