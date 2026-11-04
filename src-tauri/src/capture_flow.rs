@@ -1,6 +1,6 @@
 //! What happens to a finished capture: save to the gallery, then copy or "save as".
 
-use crate::state::AppState;
+use crate::state::{emit_library_changed, AppState};
 use arboard::{Clipboard, ImageData};
 use chrono::NaiveDateTime;
 use image::{ImageFormat, RgbaImage};
@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::PoisonError;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
 
@@ -38,18 +38,18 @@ pub fn handle(app: &AppHandle, r: CaptureResult) {
     let png = encode_png(&img);
     let name = file_name_for(r.captured_at);
     match import(app, &png, r.captured_at) {
-        Ok(()) => {
-            if let Err(e) = app.emit(LIBRARY_CHANGED, ()) {
-                error!("emitting {LIBRARY_CHANGED}: {e}");
-            }
-        }
+        Ok(()) => emit_library_changed(app),
         Err(e) => {
             error!("import into the gallery failed: {e}");
             save_unsaved(app, &png, &name);
         }
     }
     match r.action {
-        Action::Copy => copy_to_clipboard(&img),
+        Action::Copy => {
+            if let Err(e) = copy_to_clipboard(&img) {
+                error!("copying the capture to the clipboard: {e}");
+            }
+        }
         Action::SaveAs => save_as(app, &png, &name),
         Action::Close => {}
     }
@@ -97,15 +97,14 @@ fn save_unsaved(app: &AppHandle, png: &[u8], name: &str) {
     notify(app, &body);
 }
 
-fn copy_to_clipboard(img: &RgbaImage) {
+/// Puts `img` on the clipboard as a bitmap.
+pub fn copy_to_clipboard(img: &RgbaImage) -> Result<(), arboard::Error> {
     let data = ImageData {
         width: img.width() as usize,
         height: img.height() as usize,
         bytes: Cow::Borrowed(img.as_raw()),
     };
-    if let Err(e) = Clipboard::new().and_then(|mut c| c.set_image(data)) {
-        error!("copying the capture to the clipboard: {e}");
-    }
+    Clipboard::new().and_then(|mut c| c.set_image(data))
 }
 
 /// Asks where to put an extra copy of the PNG. Blocks this worker until answered.

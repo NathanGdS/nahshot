@@ -22,6 +22,17 @@ pub enum Theme {
     Dark,
 }
 
+impl Theme {
+    /// The serialized name, also used as the windows' `?theme=` value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Theme::System => "system",
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+        }
+    }
+}
+
 /// Everything the user can configure. Missing fields take their default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

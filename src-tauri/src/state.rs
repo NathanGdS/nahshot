@@ -34,10 +34,15 @@ pub fn resync(app: &AppHandle) {
     match report {
         Ok(r) => {
             info!("library sync: +{} -{}", r.added, r.removed);
-            if let Err(e) = app.emit(LIBRARY_CHANGED, ()) {
-                error!("emitting {LIBRARY_CHANGED}: {e}");
-            }
+            emit_library_changed(app);
         }
         Err(e) => error!("library sync failed: {e}"),
+    }
+}
+
+/// Tells every open window that the gallery contents changed.
+pub fn emit_library_changed(app: &AppHandle) {
+    if let Err(e) = app.emit(LIBRARY_CHANGED, ()) {
+        error!("emitting {LIBRARY_CHANGED}: {e}");
     }
 }

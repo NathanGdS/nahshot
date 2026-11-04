@@ -1,6 +1,7 @@
 //! The nahshot desktop app: tray icon, settings and the capture-to-gallery flow.
 
 pub mod capture_flow;
+pub mod commands;
 pub mod settings;
 pub mod state;
 pub mod tray;
@@ -36,6 +37,23 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| setup(app.handle()))
+        .invoke_handler(tauri::generate_handler![
+            commands::list_prints,
+            commands::get_sidebar,
+            commands::rename_print,
+            commands::set_favorite,
+            commands::add_tag,
+            commands::remove_tag,
+            commands::create_album,
+            commands::rename_album,
+            commands::delete_album,
+            commands::move_to_album,
+            commands::remove_from_album,
+            commands::delete_prints,
+            commands::copy_print,
+            commands::reveal_print,
+            commands::open_settings,
+        ])
         .build(tauri::generate_context!())
         .expect("failed to start nahshot")
         .run(|_app, event| {
@@ -57,7 +75,13 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     apply_autostart(app, settings.autostart);
 
     let lib = Library::open(settings.prints_dir.clone(), &data_dir.join("nahshot.db"))?;
-    let thumbs = ThumbCache::new(data_dir.join("thumbs"))?;
+    let thumbs_dir = data_dir.join("thumbs");
+    let thumbs = ThumbCache::new(thumbs_dir.clone())?;
+    // The prints folder can be anywhere, so the webview's asset scope is set here
+    // rather than statically: thumbnails in the grid, full images in the viewer.
+    let assets = app.asset_protocol_scope();
+    assets.allow_directory(&thumbs_dir, true)?;
+    assets.allow_directory(lib.root(), true)?;
     let overlay = spawn_overlay(capture_flow::dispatcher(app.clone()));
     overlay.set_hotkeys(settings.hotkey_config());
     let prints_dir = settings.prints_dir.clone();
