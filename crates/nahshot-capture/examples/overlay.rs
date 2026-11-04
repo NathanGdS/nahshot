@@ -1,8 +1,11 @@
 //! Manual harness for the capture overlay.
 //!
-//! Press Enter to capture; each result with an image is saved as `out-N.png`.
-//! Run with `cargo run -p nahshot-capture --example overlay --release`.
+//! Press Enter or Ctrl+Shift+S to capture; each result with an image is saved as
+//! `out-N.png`. With `--intercept`, bare Print Screen opens the overlay too instead
+//! of reaching Windows.
+//! Run with `cargo run -p nahshot-capture --example overlay --release [-- --intercept]`.
 
+use nahshot_capture::hotkey::HotkeyConfig;
 use nahshot_capture::overlay::{spawn_overlay, CaptureResult};
 use std::io::BufRead;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -27,7 +30,19 @@ fn main() {
             Err(e) => eprintln!("{:?}: saving {path} failed: {e}", r.action),
         }
     });
-    println!("Press Enter to capture; close stdin (Ctrl+Z, Enter) to quit.");
+    let intercept_print_screen = std::env::args().any(|a| a == "--intercept");
+    overlay.set_hotkeys(HotkeyConfig {
+        intercept_print_screen,
+        alt: Some("Ctrl+Shift+S".into()),
+    });
+    println!(
+        "Press Enter or Ctrl+Shift+S{} to capture; close stdin (Ctrl+Z, Enter) to quit.",
+        if intercept_print_screen {
+            " or Print Screen"
+        } else {
+            ""
+        }
+    );
     for line in std::io::stdin().lock().lines() {
         if line.is_err() {
             break;

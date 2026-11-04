@@ -13,6 +13,7 @@ mod window;
 use crate::font::Font;
 use crate::geom::PxRect;
 use crate::grab::grab_all;
+use crate::hotkey::{HotkeyConfig, Hotkeys};
 use crate::render::compose;
 use chrono::{Local, NaiveDateTime};
 use image::RgbaImage;
@@ -52,6 +53,7 @@ pub struct CaptureResult {
 #[derive(Debug)]
 pub(crate) enum UserEvent {
     Capture,
+    SetHotkeys(HotkeyConfig),
 }
 
 /// Cloneable, `Send` handle to the overlay thread.
@@ -65,6 +67,13 @@ impl OverlayHandle {
     pub fn trigger(&self) {
         if self.proxy.send_event(UserEvent::Capture).is_err() {
             error!("overlay thread is gone; capture request dropped");
+        }
+    }
+
+    /// Replaces the keys that open the overlay (none until the first call).
+    pub fn set_hotkeys(&self, cfg: HotkeyConfig) {
+        if self.proxy.send_event(UserEvent::SetHotkeys(cfg)).is_err() {
+            error!("overlay thread is gone; hotkey change dropped");
         }
     }
 }
@@ -88,7 +97,11 @@ pub fn spawn_overlay(on_result: impl Fn(CaptureResult) + Send + 'static) -> Over
                 .expect("overlay event loop");
             tx.send(event_loop.create_proxy())
                 .expect("spawn_overlay is waiting");
-            let mut app = Overlay::new(Box::new(on_result));
+            let proxy = event_loop.create_proxy();
+            let hotkeys = Hotkeys::new(move || {
+                let _ = proxy.send_event(UserEvent::Capture);
+            });
+            let mut app = Overlay::new(Box::new(on_result), hotkeys);
             if let Err(e) = event_loop.run_app(&mut app) {
                 error!("overlay event loop stopped: {e}");
             }
@@ -102,6 +115,7 @@ pub fn spawn_overlay(on_result: impl Fn(CaptureResult) + Send + 'static) -> Over
 /// The event-loop side: windows, context and the open session.
 struct Overlay {
     on_result: Box<dyn Fn(CaptureResult)>,
+    hotkeys: Hotkeys,
     font: Option<Rc<Font>>,
     context: Option<Context>,
     windows: Vec<MonitorWindow>,
@@ -111,13 +125,14 @@ struct Overlay {
 }
 
 impl Overlay {
-    fn new(on_result: Box<dyn Fn(CaptureResult)>) -> Self {
+    fn new(on_result: Box<dyn Fn(CaptureResult)>, hotkeys: Hotkeys) -> Self {
         let font = Font::system()
             .inspect_err(|e| warn!("no system font, text tool disabled: {e}"))
             .ok()
             .map(Rc::new);
         Overlay {
             on_result,
+            hotkeys,
             font,
             context: None,
             windows: Vec::new(),
@@ -289,6 +304,15 @@ impl ApplicationHandler<UserEvent> for Overlay {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Capture => self.capture(event_loop),
+            UserEvent::SetHotkeys(cfg) => self.hotkeys.apply(&cfg),
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // The hotkey's hidden window lives on this thread, so its WM_HOTKEY was just
+        // dispatched by this loop; the event sits in global-hotkey's channel.
+        if self.hotkeys.poll() {
+            self.capture(event_loop);
         }
     }
 
