@@ -110,6 +110,30 @@ impl Annotations {
         self.shapes.last_mut()
     }
 
+    /// Shifts every shape by `(dx, dy)`, e.g. to keep them on the same screen content
+    /// when the selection corner they are relative to moves.
+    pub fn translate(&mut self, dx: f32, dy: f32) {
+        let shift = |p: &mut Pt| {
+            p.0 += dx;
+            p.1 += dy;
+        };
+        for shape in &mut self.shapes {
+            match shape {
+                Shape::Pen { pts, .. } | Shape::Marker { pts, .. } => {
+                    pts.iter_mut().for_each(shift)
+                }
+                Shape::Line { a, b, .. }
+                | Shape::Arrow { a, b, .. }
+                | Shape::Rect { a, b, .. }
+                | Shape::Ellipse { a, b, .. } => {
+                    shift(a);
+                    shift(b);
+                }
+                Shape::Text { at, .. } => shift(at),
+            }
+        }
+    }
+
     /// Shapes in drawing order.
     pub fn shapes(&self) -> &[Shape] {
         &self.shapes
@@ -145,6 +169,46 @@ mod tests {
         assert!(a.undo().is_some());
         assert!(a.undo().is_none());
         assert!(a.is_empty());
+    }
+
+    #[test]
+    fn translate_shifts_every_point() {
+        let mut a = Annotations::default();
+        a.push(Shape::Rect {
+            a: (1.0, 2.0),
+            b: (3.0, 4.0),
+            color: PALETTE[0],
+            width: STROKE_WIDTH,
+        });
+        a.push(Shape::Marker {
+            pts: vec![(0.0, 0.0), (5.0, 5.0)],
+            color: PALETTE[0],
+        });
+        a.push(Shape::Text {
+            at: (7.0, 8.0),
+            text: "x".into(),
+            color: PALETTE[0],
+            size: TEXT_SIZE,
+        });
+        a.translate(10.0, -1.0);
+        assert!(matches!(
+            a.shapes()[0],
+            Shape::Rect {
+                a: (11.0, 1.0),
+                b: (13.0, 3.0),
+                ..
+            }
+        ));
+        assert!(
+            matches!(&a.shapes()[1], Shape::Marker { pts, .. } if pts == &[(10.0, -1.0), (15.0, 4.0)])
+        );
+        assert!(matches!(
+            a.shapes()[2],
+            Shape::Text {
+                at: (17.0, 7.0),
+                ..
+            }
+        ));
     }
 
     #[test]

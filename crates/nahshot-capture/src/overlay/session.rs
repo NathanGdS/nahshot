@@ -151,6 +151,11 @@ impl Session {
             } => {
                 let mut s = start.clone();
                 s.drag(handle, from, p);
+                // Shapes are relative to the corner: keep them on the same screen content.
+                if let (Some(old), Some(new)) = (self.sel.rect(), s.rect()) {
+                    self.ann
+                        .translate((old.x - new.x) as f32, (old.y - new.y) as f32);
+                }
                 self.sel = s;
             }
             Gesture::Drawing => self.extend_shape(p),
@@ -591,6 +596,35 @@ mod tests {
         s.key(Key::Text("ok".into()));
         s.key(Key::Enter);
         assert!(matches!(&s.ann.shapes()[0], Shape::Text { text, .. } if text == "ok"));
+    }
+
+    /// Desktop position of the first point of the first shape.
+    fn shape_on_desktop(s: &Session) -> (f32, f32) {
+        let sel = s.sel.rect().expect("selection");
+        let Shape::Rect { a, .. } = &s.ann.shapes()[0] else {
+            panic!("expected a rect");
+        };
+        (sel.x as f32 + a.0, sel.y as f32 + a.1)
+    }
+
+    #[test]
+    fn annotations_stay_on_content_when_selection_moves_or_resizes() {
+        let mut s = session(false);
+        drag(&mut s, (-100, 0), (100, 100));
+        s.tool = Some(Tool::Rect);
+        drag(&mut s, (-50, 20), (50, 80));
+        s.tool = None;
+        let before = shape_on_desktop(&s);
+
+        drag(&mut s, (0, 50), (30, 10)); // move by (30, -40)
+        assert_eq!(s.sel.rect().map(|r| (r.x, r.y)), Some((-70, -40)));
+        assert_eq!(shape_on_desktop(&s), before);
+
+        drag(&mut s, (-70, 0), (-90, 0)); // W edge outwards by 20
+        assert_eq!(s.sel.rect().map(|r| r.x), Some(-90));
+        assert_eq!(shape_on_desktop(&s), before);
+        let img = s.finish(Action::Close).image.expect("image");
+        assert_eq!(img.dimensions(), (220, 60)); // rows above the desktop are dropped
     }
 
     #[test]

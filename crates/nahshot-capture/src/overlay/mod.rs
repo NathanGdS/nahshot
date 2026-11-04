@@ -18,6 +18,7 @@ use chrono::{Local, NaiveDateTime};
 use image::RgbaImage;
 use log::{error, info, warn};
 use session::{Key, Monitor, Outcome, Session};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
 use std::time::Instant;
 use window::{Context, MonitorWindow};
@@ -238,8 +239,20 @@ impl Overlay {
                 .iter()
                 .for_each(|w| w.window().set_ime_allowed(false));
         }
-        let result = session.finish(action);
-        (self.on_result)(result);
+        deliver(&*self.on_result, session.finish(action));
+    }
+}
+
+/// Hands `result` to the caller's callback. A panic there is logged instead of
+/// unwinding, since it would kill the overlay thread and with it every future capture.
+fn deliver(on_result: &dyn Fn(CaptureResult), result: CaptureResult) {
+    if let Err(panic) = catch_unwind(AssertUnwindSafe(|| on_result(result))) {
+        let msg = panic
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "non-string panic payload".into());
+        error!("capture result handler panicked: {msg}");
     }
 }
 
@@ -331,5 +344,31 @@ impl ApplicationHandler<UserEvent> for Overlay {
             _ => Outcome::Nothing,
         };
         self.apply(outcome);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn result() -> CaptureResult {
+        CaptureResult {
+            action: Action::Close,
+            image: None,
+            captured_at: NaiveDateTime::default(),
+        }
+    }
+
+    #[test]
+    fn panicking_result_handler_does_not_unwind_into_the_overlay() {
+        let calls = Cell::new(0);
+        let handler = |_: CaptureResult| {
+            calls.set(calls.get() + 1);
+            panic!("caller bug");
+        };
+        deliver(&handler, result());
+        deliver(&handler, result());
+        assert_eq!(calls.get(), 2);
     }
 }
