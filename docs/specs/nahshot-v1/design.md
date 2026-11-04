@@ -61,7 +61,7 @@ Motivação secundária: projeto de portfólio em Rust no GitHub do autor (que t
 ### 6.3 Armazenamento
 - Imagens em PNG numa pasta normal do Windows. Padrão: `%USERPROFILE%\Pictures\nahshot\AAAA-MM\`, configurável.
 - Nome de arquivo padrão baseado em data/hora (ex.: `2026-11-04_14-32-10.png`), renomeável na galeria.
-- Metadados (álbuns, etiquetas, favoritos, nome exibido) num banco SQLite local no diretório de dados do app.
+- Metadados (etiquetas, favoritos, data de captura) num banco SQLite local no diretório de dados do app.
 - *(Chamada do designer:)* desinstalar o app não apaga os PNGs.
 - *(Chamada do designer:)* miniaturas geradas uma vez e guardadas em cache, para a galeria abrir rápido com milhares de prints.
 - *(Chamada do designer:)* **fonte da verdade:** a pasta diz *quais* prints existem; o SQLite guarda só metadados. O app observa a pasta (file watcher + varredura ao abrir a galeria): PNG novo adicionado pelo Explorer aparece na galeria; PNG apagado/movido por fora some da galeria (metadados órfãos são limpos).
