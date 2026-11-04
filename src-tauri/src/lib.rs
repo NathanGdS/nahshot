@@ -3,6 +3,7 @@
 pub mod capture_flow;
 pub mod commands;
 pub mod settings;
+pub mod settings_commands;
 pub mod state;
 pub mod tray;
 pub mod windows;
@@ -53,6 +54,14 @@ pub fn run() {
             commands::copy_print,
             commands::reveal_print,
             commands::open_settings,
+            settings_commands::get_settings,
+            settings_commands::set_autostart,
+            settings_commands::set_default_print_screen,
+            settings_commands::set_alt_hotkey,
+            settings_commands::set_theme,
+            settings_commands::pick_prints_dir,
+            settings_commands::change_prints_dir,
+            settings_commands::finish_welcome,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start nahshot")
@@ -69,10 +78,17 @@ pub fn run() {
 
 fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let paths = app.path();
-    let settings = Settings::load(&paths.app_config_dir()?.join("settings.json"));
+    let settings_path = paths.app_config_dir()?.join("settings.json");
+    let settings = Settings::load(&settings_path);
     let data_dir = paths.app_local_data_dir()?;
     std::fs::create_dir_all(&data_dir)?;
-    apply_autostart(app, settings.autostart);
+    match sync_autostart(app, settings.autostart) {
+        Ok(()) => info!(
+            "autostart {}",
+            if settings.autostart { "on" } else { "off" }
+        ),
+        Err(e) => error!("autostart: {e}"),
+    }
 
     let lib = Library::open(settings.prints_dir.clone(), &data_dir.join("nahshot.db"))?;
     let thumbs_dir = data_dir.join("thumbs");
@@ -90,6 +106,7 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         lib: Mutex::new(lib),
         thumbs,
         settings: Mutex::new(settings),
+        settings_path,
         overlay,
         watcher: Mutex::new(None),
     });
@@ -112,7 +129,7 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Watches the prints folder, creating it first. Failures are only logged: the app
 /// still runs, and captures fall back to `unsaved\`.
-fn start_watcher(app: &AppHandle, prints_dir: &Path) -> Option<LibraryWatcher> {
+pub(crate) fn start_watcher(app: &AppHandle, prints_dir: &Path) -> Option<LibraryWatcher> {
     if let Err(e) = std::fs::create_dir_all(prints_dir) {
         warn!(
             "prints folder {} unavailable, not watching: {e}",
@@ -126,18 +143,15 @@ fn start_watcher(app: &AppHandle, prints_dir: &Path) -> Option<LibraryWatcher> {
         .ok()
 }
 
-/// Makes the "start with Windows" registration match the setting.
-fn apply_autostart(app: &AppHandle, enabled: bool) {
+/// Makes the "start with Windows" registration match `enabled`.
+pub(crate) fn sync_autostart(
+    app: &AppHandle,
+    enabled: bool,
+) -> Result<(), tauri_plugin_autostart::Error> {
     let autolaunch = app.autolaunch();
-    let result = autolaunch
-        .is_enabled()
-        .and_then(|current| match (enabled, current) {
-            (true, false) => autolaunch.enable(),
-            (false, true) => autolaunch.disable(),
-            _ => Ok(()),
-        });
-    match result {
-        Ok(()) => info!("autostart {}", if enabled { "on" } else { "off" }),
-        Err(e) => error!("autostart: {e}"),
+    match (enabled, autolaunch.is_enabled()?) {
+        (true, false) => autolaunch.enable(),
+        (false, true) => autolaunch.disable(),
+        _ => Ok(()),
     }
 }

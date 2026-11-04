@@ -54,6 +54,38 @@ export const copyPrint = (id: number) => invoke<void>("copy_print", { id });
 export const revealPrint = (id: number) => invoke<void>("reveal_print", { id });
 export const openSettings = () => invoke<void>("open_settings");
 
+export type Theme = "system" | "light" | "dark";
+
+/** The user's settings, as `get_settings` returns them. */
+export interface Settings {
+  printsDir: string;
+  autostart: boolean;
+  defaultPrintScreen: boolean;
+  altHotkey: string;
+  theme: Theme;
+  firstRunDone: boolean;
+}
+
+/** What moving the prints folder did. */
+export interface ChangeDirReport {
+  moved: number;
+  failed: number;
+}
+
+export const getSettings = () => invoke<Settings>("get_settings");
+export const setAutostart = (enabled: boolean) => invoke<void>("set_autostart", { enabled });
+export const setDefaultPrintScreen = (enabled: boolean) => invoke<void>("set_default_print_screen", { enabled });
+export const setAltHotkey = (accelerator: string) => invoke<string>("set_alt_hotkey", { accelerator });
+export const setTheme = (theme: Theme) => invoke<void>("set_theme", { theme });
+export const pickPrintsDir = () => invoke<string | null>("pick_prints_dir");
+export const changePrintsDir = (path: string, moveExisting: boolean) =>
+  invoke<ChangeDirReport>("change_prints_dir", { new: path, moveExisting });
+export const finishWelcome = (enableDefault: boolean) => invoke<void>("finish_welcome", { enableDefault });
+
+/** Calls `cb` with the new settings whenever any window changes them. */
+export const onSettingsChanged = (cb: (s: Settings) => void): Promise<UnlistenFn> =>
+  listen<Settings>("settings-changed", (e) => cb(e.payload));
+
 /** Calls `cb` whenever the library changes (capture, edit, or the folder on disk). */
 export const onLibraryChanged = (cb: () => void): Promise<UnlistenFn> => listen("library-changed", cb);
 
@@ -78,5 +110,6 @@ export function friendlyError(err: unknown): string {
   if (msg.startsWith("album already exists")) return "Já existe um álbum com esse nome.";
   if (msg.startsWith("album not found")) return "Esse álbum não existe mais.";
   if (msg.startsWith("print not found")) return "Esse print não existe mais.";
+  if (msg.includes("invalid accelerator")) return "Essa combinação de teclas não pode ser usada.";
   return msg;
 }

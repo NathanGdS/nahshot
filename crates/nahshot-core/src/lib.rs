@@ -5,6 +5,7 @@ pub mod error;
 pub mod library;
 pub mod model;
 pub mod naming;
+pub mod relocate;
 pub mod sync;
 pub mod thumbs;
 pub mod watch;

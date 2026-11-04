@@ -99,10 +99,20 @@ export function showMenuBelow(anchor: HTMLElement, items: MenuItem[]): void {
   showMenu(r.left, r.bottom + 4, items);
 }
 
-/** Asks a yes/no question in a modal dialog; resolves to the answer. */
-export function confirmDialog(opts: { title: string; body?: string; confirm: string; danger?: boolean }): Promise<boolean> {
+/** One button of a {@link choose} dialog. */
+export interface Choice {
+  value: string;
+  label: string;
+  kind?: "primary" | "danger";
+}
+
+/**
+ * Asks a question with several answers in a modal dialog. Resolves to the chosen
+ * value, or `null` when dismissed with Esc. The last choice gets the focus.
+ */
+export function choose(opts: { title: string; body?: string; choices: Choice[] }): Promise<string | null> {
   return new Promise((resolve) => {
-    const ok = h("button", { class: `btn ${opts.danger ? "btn-danger" : "btn-primary"}`, value: "ok" }, opts.confirm);
+    const buttons = opts.choices.map((c) => h("button", { class: `btn${c.kind ? ` btn-${c.kind}` : ""}`, value: c.value }, c.label));
     const dialog = h(
       "dialog",
       { class: "dialog" },
@@ -111,17 +121,30 @@ export function confirmDialog(opts: { title: string; body?: string; confirm: str
         { method: "dialog" },
         h("h2", { class: "dialog-title" }, opts.title),
         opts.body ? h("p", { class: "dialog-body" }, opts.body) : null,
-        h("div", { class: "dialog-actions" }, h("button", { class: "btn", value: "cancel" }, "Cancelar"), ok),
+        h("div", { class: "dialog-actions" }, ...buttons),
       ),
     );
     dialog.addEventListener("close", () => {
-      resolve(dialog.returnValue === "ok");
+      resolve(dialog.returnValue || null);
       dialog.remove();
     });
     document.body.append(dialog);
     dialog.showModal();
-    ok.focus();
+    buttons.at(-1)?.focus();
   });
+}
+
+/** Asks a yes/no question in a modal dialog; resolves to the answer. */
+export async function confirmDialog(opts: { title: string; body?: string; confirm: string; danger?: boolean }): Promise<boolean> {
+  const answer = await choose({
+    title: opts.title,
+    body: opts.body,
+    choices: [
+      { value: "cancel", label: "Cancelar" },
+      { value: "ok", label: opts.confirm, kind: opts.danger ? "danger" : "primary" },
+    ],
+  });
+  return answer === "ok";
 }
 
 /** Shows a short message at the bottom of the window. */

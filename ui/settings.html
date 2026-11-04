@@ -2,11 +2,19 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="data:," />
     <title>nahshot · Configurações</title>
+    <script type="module" src="/src/settings.ts"></script>
   </head>
   <body>
-    <!-- Placeholder until the real UI lands (Task 11). -->
-    <h1>Configurações</h1>
+    <main class="page settings">
+      <header class="page-header">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1>Configurações</h1>
+      </header>
+      <div id="sections" class="sections"></div>
+    </main>
   </body>
 </html>

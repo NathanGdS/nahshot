@@ -36,10 +36,11 @@ pub struct Sidebar {
     pub favorites: usize,
 }
 
-type CmdResult<T> = Result<T, String>;
+/// A command's outcome; the error is a message for the UI.
+pub(crate) type CmdResult<T> = Result<T, String>;
 
 /// Runs `f` on a blocking worker, so slow disk work never stalls IPC or the main thread.
-async fn blocking<T, F>(app: AppHandle, f: F) -> CmdResult<T>
+pub(crate) async fn blocking<T, F>(app: AppHandle, f: F) -> CmdResult<T>
 where
     T: Send + 'static,
     F: FnOnce(&AppHandle, &AppState) -> CmdResult<T> + Send + 'static,
