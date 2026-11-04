@@ -1,7 +1,7 @@
 # nahshot v1 — Design
 
 Data: 2026-11-04
-Status: rascunho, aguardando aprovação
+Status: rascunho, aguardando aprovação (revisado)
 
 ## 1. Intenção e porquê
 
@@ -49,6 +49,7 @@ Motivação secundária: projeto de portfólio em Rust no GitHub do autor (que t
 ### 6.2 Captura
 - **Gatilho:** tecla Print Screen (configurável nas Configurações), além do menu da bandeja.
 - A tela é congelada e escurecida imediatamente, cobrindo **todos os monitores**.
+- *(Chamada do designer:)* a seleção pode atravessar monitores (como no Lightshot), e monitores com escalas de DPI diferentes precisam funcionar na v1. A imagem salva fica em pixels físicos.
 - O usuário arrasta para selecionar uma região; o tamanho em pixels é exibido. A seleção pode ser ajustada (mover/redimensionar) antes de confirmar.
 - Uma barra de ferramentas aparece colada à seleção com:
   - Ferramentas: caneta livre, linha, seta, retângulo, círculo/elipse, marca-texto, texto.
@@ -63,13 +64,21 @@ Motivação secundária: projeto de portfólio em Rust no GitHub do autor (que t
 - Metadados (álbuns, etiquetas, favoritos, nome exibido) num banco SQLite local no diretório de dados do app.
 - *(Chamada do designer:)* desinstalar o app não apaga os PNGs.
 - *(Chamada do designer:)* miniaturas geradas uma vez e guardadas em cache, para a galeria abrir rápido com milhares de prints.
+- *(Chamada do designer:)* **fonte da verdade:** a pasta diz *quais* prints existem; o SQLite guarda só metadados. O app observa a pasta (file watcher + varredura ao abrir a galeria): PNG novo adicionado pelo Explorer aparece na galeria; PNG apagado/movido por fora some da galeria (metadados órfãos são limpos).
+- *(Chamada do designer:)* renomear na galeria **renomeia o arquivo no disco**; não existe "nome exibido" separado.
+- *(Chamada do designer:)* trocar a pasta dos prints nas Configurações não move nada automaticamente: oferece "mover prints existentes para a nova pasta?" (sim/não). Se não, os antigos continuam na galeria a partir do local original (o banco guarda caminhos absolutos).
 
 ### 6.4 Galeria (layout "A", aprovado no mockup)
 - Janela com **barra lateral** à esquerda e **área principal** à direita; campo de busca e botão de ordenação no topo.
 - Barra lateral: Todos, Favoritos, seção **Álbuns** (criar, renomear, apagar; botão "+ Novo álbum"), seção **Etiquetas**.
 - Área principal: grade de miniaturas **agrupada por dia** (Hoje, Ontem, datas), do mais novo pro mais velho por padrão, com opção de inverter.
 - Busca por nome do print, etiqueta ou álbum.
-- Um print pode estar em um álbum e ter várias etiquetas. *(Chamada do designer: um álbum por print, já que "pasta" é o modelo mental dito pelo usuário; etiquetas cobrem o caso de múltiplas categorias.)*
+- Um print pode estar em um álbum e ter várias etiquetas.
+- **Álbum = pasta de verdade no disco (decisão do usuário).** Cada álbum é uma subpasta em `<pasta dos prints>\Álbuns\<nome>\`. Por isso um print fica em no máximo um álbum. Etiquetas e favoritos ficam só no banco.
+  - Mover um print para um álbum move o PNG para a subpasta; tirar do álbum devolve o PNG para a pasta do mês.
+  - Criar/renomear um álbum cria/renomeia a pasta. Uma subpasta criada pelo Explorer dentro de `Álbuns\` aparece como álbum.
+  - *(Chamada do designer:)* apagar um álbum devolve os prints dele para as pastas de mês e só depois remove a pasta vazia. Nunca apaga prints.
+  - *(Chamada do designer:)* o agrupamento por dia usa a data de captura (guardada no banco e no nome do arquivo), não a pasta onde o PNG está.
 - Abrir um print mostra a imagem grande. Ações: copiar, abrir na pasta (Explorer), renomear, favoritar, mover para álbum, adicionar/remover etiqueta, apagar.
 - *(Chamada do designer:)* seleção múltipla (Ctrl/Shift+clique) e arrastar para um álbum na barra lateral.
 - *(Chamada do designer:)* apagar manda o PNG para a Lixeira do Windows.
@@ -79,13 +88,15 @@ Motivação secundária: projeto de portfólio em Rust no GitHub do autor (que t
 - Pasta dos prints.
 - Iniciar com o Windows.
 - **"Usar o nahshot como Print Screen padrão"**: desativa a opção do Windows que faz o Print Screen abrir a Ferramenta de Captura (chave de registro por usuário, `HKCU\Control Panel\Keyboard\PrintScreenKeyForSnippingEnabled`) e passa a interceptar a tecla. Desmarcar restaura o estado anterior.
+  - *(Chamada do designer:)* ligado → hook de teclado de baixo nível que intercepta o Print Screen e **bloqueia** a ação do Windows (nem Ferramenta de Captura, nem cópia da tela inteira). Desligado → o Print Screen é do Windows; o nahshot fica acessível pelo menu da bandeja e por um atalho alternativo (padrão `Ctrl+Shift+S`, configurável), registrado como hotkey normal.
 - Tecla de atalho de captura.
 - Tema claro/escuro.
 - Primeira execução: uma tela de boas-vindas que oferece ativar o nahshot como Print Screen padrão.
 
 ## 7. Metas de leveza (chamada do designer, para validar)
 
-- RAM parado na bandeja, sem a galeria aberta: alvo < ~30 MB.
+- RAM parado na bandeja, sem a galeria aberta: alvo < ~30 MB, contando o processo do nahshot **e** qualquer processo filho (WebView2). Ou seja, parado não pode haver webview viva.
+- Abrir a galeria a frio (subir o WebView2) em ~1 s é aceitável; é o preço de não ocupar memória parado.
 - Do Print Screen até o overlay de seleção visível: alvo < ~150 ms.
 - Implicação: o overlay de captura **não deve depender de inicializar um webview a cada captura**. Fica a cargo do builder escolher entre um overlay nativo (ex.: Win32/Direct2D, `softbuffer`/`tiny-skia`) ou um webview pré-aquecido, desde que as metas sejam atingidas e medidas.
 
