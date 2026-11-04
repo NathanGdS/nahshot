@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use image::imageops::FilterType;
 
@@ -14,6 +15,9 @@ use crate::Result;
 const MAX_SIDE: u32 = 320;
 /// JPEG quality used for thumbnails.
 const JPEG_QUALITY: u8 = 80;
+
+/// Makes temporary file names unique within the process.
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// A directory of thumbnails keyed by source path, mtime and size.
 pub struct ThumbCache {
@@ -31,34 +35,51 @@ impl ThumbCache {
     pub fn get_or_create(&self, source: &Path) -> Result<PathBuf> {
         let thumb = self.dir.join(format!("{}.jpg", cache_key(source)?));
         if !thumb.exists() {
-            let img = image::open(source)?;
-            let img = if img.width() > MAX_SIDE || img.height() > MAX_SIDE {
-                img.resize(MAX_SIDE, MAX_SIDE, FilterType::Triangle)
-            } else {
-                img
-            };
-            let file = fs::File::create(&thumb)?;
-            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-                std::io::BufWriter::new(file),
-                JPEG_QUALITY,
-            );
-            img.to_rgb8().write_with_encoder(encoder)?;
+            let tmp = self.dir.join(format!(
+                "{}.{}.{}.tmp",
+                thumb.file_stem().unwrap_or_default().to_string_lossy(),
+                std::process::id(),
+                TMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            let written = write_thumb(source, &tmp).and_then(|()| Ok(fs::rename(&tmp, &thumb)?));
+            if let Err(err) = written {
+                let _ = fs::remove_file(&tmp);
+                return Err(err);
+            }
         }
         Ok(thumb)
     }
 
-    /// Deletes cached thumbnails not listed in `keep`; returns how many were removed.
+    /// Deletes cached `.jpg` thumbnails not listed in `keep`; returns how many were removed.
     pub fn prune(&self, keep: &HashSet<PathBuf>) -> Result<usize> {
         let mut removed = 0;
         for entry in fs::read_dir(&self.dir)? {
             let path = entry?.path();
-            if !keep.contains(&path) {
+            let is_thumb = path.is_file() && path.extension().is_some_and(|ext| ext == "jpg");
+            if is_thumb && !keep.contains(&path) {
                 fs::remove_file(&path)?;
                 removed += 1;
             }
         }
         Ok(removed)
     }
+}
+
+/// Decodes `source`, downsizes it and writes a JPEG thumbnail to `dest`.
+fn write_thumb(source: &Path, dest: &Path) -> Result<()> {
+    let img = image::open(source)?;
+    let img = if img.width() > MAX_SIDE || img.height() > MAX_SIDE {
+        img.resize(MAX_SIDE, MAX_SIDE, FilterType::Triangle)
+    } else {
+        img
+    };
+    let file = fs::File::create(dest)?;
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+        std::io::BufWriter::new(file),
+        JPEG_QUALITY,
+    );
+    img.to_rgb8().write_with_encoder(encoder)?;
+    Ok(())
 }
 
 /// Hex hash of the lowercased absolute path, modification time and size.
@@ -142,5 +163,33 @@ mod tests {
         assert_eq!(cache.prune(&keep).unwrap(), 1);
         assert!(thumb_a.exists());
         assert!(!thumb_b.exists());
+    }
+
+    #[test]
+    fn prune_ignores_subdirs_and_tmp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("a.png");
+        write_png(&src, 50, 50);
+        let cache = cache(&dir);
+        let thumb = cache.get_or_create(&src).unwrap();
+        let cache_dir = dir.path().join("thumbs");
+        fs::create_dir(cache_dir.join("sub")).unwrap();
+        fs::write(cache_dir.join("x.1.0.tmp"), b"partial").unwrap();
+
+        assert_eq!(cache.prune(&HashSet::new()).unwrap(), 1);
+        assert!(!thumb.exists());
+        assert!(cache_dir.join("sub").is_dir());
+        assert!(cache_dir.join("x.1.0.tmp").exists());
+    }
+
+    #[test]
+    fn failed_encode_leaves_no_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("bad.png");
+        fs::write(&bad, b"not an image").unwrap();
+        let cache = cache(&dir);
+
+        assert!(cache.get_or_create(&bad).is_err());
+        assert_eq!(fs::read_dir(dir.path().join("thumbs")).unwrap().count(), 0);
     }
 }
