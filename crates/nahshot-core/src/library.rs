@@ -151,12 +151,9 @@ impl Library {
 
     /// Renames an album folder and re-points the prints inside it.
     pub fn rename_album(&self, old: &str, new: &str) -> Result<String> {
-        let old = validate_album_name(old)?;
+        let old = self.resolve_album(old)?;
         let new = validate_album_name(new)?;
         let (from, to) = (self.album_dir(&old), self.album_dir(&new));
-        if !from.is_dir() {
-            return Err(CoreError::AlbumNotFound(old));
-        }
         if to.exists() && !old.eq_ignore_ascii_case(&new) {
             return Err(CoreError::AlbumExists(new));
         }
@@ -175,11 +172,8 @@ impl Library {
     ///
     /// The folder itself is removed only if nothing else is left inside it.
     pub fn delete_album(&self, name: &str) -> Result<()> {
-        let name = validate_album_name(name)?;
+        let name = self.resolve_album(name)?;
         let dir = self.album_dir(&name);
-        if !dir.is_dir() {
-            return Err(CoreError::AlbumNotFound(name));
-        }
         for row in self.db.all()? {
             if album_of(&self.root, &row.path).as_deref() == Some(name.as_str()) {
                 self.move_to_month(&row)?;
@@ -193,14 +187,13 @@ impl Library {
 
     /// Moves prints into an existing album folder.
     pub fn move_to_album(&self, ids: &[PrintId], album: &str) -> Result<()> {
-        let album = validate_album_name(album)?;
+        let album = self.resolve_album(album)?;
         let dir = self.album_dir(&album);
-        if !dir.is_dir() {
-            return Err(CoreError::AlbumNotFound(album));
-        }
         for &id in ids {
             let row = self.db.get(id)?;
-            self.move_row(&row, &dir)?;
+            if row.path.parent() != Some(dir.as_path()) {
+                self.move_row(&row, &dir)?;
+            }
         }
         Ok(())
     }
@@ -226,6 +219,17 @@ impl Library {
             self.db.remove(id)?;
         }
         Ok(())
+    }
+
+    /// Maps a caller-supplied album name to the folder name actually on disk.
+    ///
+    /// Windows folders are case-insensitive, so the match ignores case.
+    fn resolve_album(&self, name: &str) -> Result<String> {
+        let name = validate_album_name(name)?;
+        self.albums()?
+            .into_iter()
+            .find(|a| a.to_lowercase() == name.to_lowercase())
+            .ok_or(CoreError::AlbumNotFound(name))
     }
 
     fn album_dir(&self, name: &str) -> PathBuf {

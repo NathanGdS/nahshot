@@ -277,3 +277,39 @@ fn album_of_detects_direct_children_only() {
     assert_eq!(album_of(&root, &root.join("2026-11").join("a.png")), None);
     assert_eq!(album_of(&root, &root.join("Álbuns").join("a.png")), None);
 }
+
+#[test]
+fn move_to_album_skips_prints_already_there() {
+    let (_d, lib) = lib();
+    let p = lib.import_capture(&png(), t0()).unwrap();
+    lib.create_album("Bugs").unwrap();
+    lib.move_to_album(&[p.id], "Bugs").unwrap();
+    let before = lib.get(p.id).unwrap();
+    lib.move_to_album(&[p.id], "Bugs").unwrap();
+    assert_eq!(lib.get(p.id).unwrap(), before);
+}
+
+#[test]
+fn album_names_resolve_case_insensitively() {
+    let (_d, lib) = lib();
+    let p = lib.import_capture(&png(), t0()).unwrap();
+    lib.create_album("Bugs").unwrap();
+    lib.move_to_album(&[p.id], "bugs").unwrap();
+    let moved = lib.get(p.id).unwrap();
+    assert_eq!(moved.album.as_deref(), Some("Bugs"));
+
+    assert_eq!(lib.rename_album("BUGS", "Work").unwrap(), "Work");
+    let renamed = lib.get(p.id).unwrap();
+    assert_eq!(renamed.album.as_deref(), Some("Work"));
+    assert!(renamed.path.exists());
+
+    lib.delete_album("work").unwrap();
+    let back = lib.get(p.id).unwrap();
+    assert_eq!(back.album, None);
+    assert!(back.path.exists());
+    assert!(lib.albums().unwrap().is_empty());
+    assert!(matches!(
+        lib.delete_album("nope"),
+        Err(CoreError::AlbumNotFound(_))
+    ));
+}
