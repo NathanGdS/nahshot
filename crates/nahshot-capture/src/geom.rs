@@ -64,7 +64,8 @@ pub enum Handle {
     SW,
 }
 
-/// Selection edges (left, top, right, bottom), kept ordered.
+/// Selection edges (left, top, right, bottom), kept ordered; right and bottom are
+/// one past the last selected column and row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Edges {
     l: i32,
@@ -74,12 +75,14 @@ struct Edges {
 }
 
 impl Edges {
+    /// The pixels from `a` to `b`, both included, so a drag can reach the last
+    /// column and row of the screen.
     fn spanning(a: PxPoint, b: PxPoint) -> Self {
         Edges {
             l: a.x.min(b.x),
             t: a.y.min(b.y),
-            r: a.x.max(b.x),
-            b: a.y.max(b.y),
+            r: a.x.max(b.x) + 1,
+            b: a.y.max(b.y) + 1,
         }
     }
 
@@ -214,8 +217,8 @@ mod tests {
             Some(PxRect {
                 x: -20,
                 y: 40,
-                w: 120,
-                h: 60
+                w: 121,
+                h: 61
             })
         );
     }
@@ -236,8 +239,8 @@ mod tests {
             Some(PxRect {
                 x: 0,
                 y: 0,
-                w: 150,
-                h: 120
+                w: 151,
+                h: 121
             })
         );
         s.drag(Handle::Move, p(50, 50), p(60, 70));
@@ -246,18 +249,18 @@ mod tests {
             Some(PxRect {
                 x: 10,
                 y: 20,
-                w: 150,
-                h: 120
+                w: 151,
+                h: 121
             })
         );
         s.drag(Handle::W, p(10, 50), p(200, 50));
         assert_eq!(
             s.rect(),
             Some(PxRect {
-                x: 160,
+                x: 161,
                 y: 20,
-                w: 40,
-                h: 120
+                w: 39,
+                h: 121
             })
         );
     }
@@ -290,10 +293,23 @@ mod tests {
             s.drag(Handle::W, from, PxPoint { x, y: 50 });
             s.rect().map(|r| (r.x, r.w))
         };
-        assert_eq!(drag_to(50), Some((50, 50)));
-        assert_eq!(drag_to(99), Some((97, 3)));
-        assert_eq!(drag_to(101), Some((100, 3)));
-        assert_eq!(drag_to(150), Some((100, 50)));
-        assert_eq!(drag_to(160), Some((100, 60)));
+        assert_eq!(drag_to(50), Some((50, 51)));
+        assert_eq!(drag_to(99), Some((98, 3)));
+        assert_eq!(drag_to(101), Some((101, 3)));
+        assert_eq!(drag_to(150), Some((101, 49)));
+        assert_eq!(drag_to(160), Some((101, 59)));
+    }
+
+    #[test]
+    fn dragged_edge_is_inclusive() {
+        let drag = |to: PxPoint| {
+            let mut s = Selection::default();
+            s.begin(PxPoint { x: 0, y: 0 });
+            s.update(to);
+            s.rect().map(|r| (r.w, r.h))
+        };
+        // The pointer can reach the last pixel of a 1920x1080 screen, but not beyond.
+        assert_eq!(drag(PxPoint { x: 1919, y: 1079 }), Some((1920, 1080)));
+        assert_eq!(drag(PxPoint { x: 149, y: 99 }), Some((150, 100)));
     }
 }
