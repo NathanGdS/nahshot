@@ -97,7 +97,7 @@ make release            # próximo patch (ex.: v0.1.0 → v0.1.1)
 make release V=minor    # ou V=major, ou V=1.2.0, ou V=1.2.0-beta.1
 ```
 
-O [`scripts/release.sh`](scripts/release.sh) confere a branch, as mudanças pendentes e se a `main` está em dia com o origin, mostra a próxima tag e pede confirmação (`--dry-run` só mostra). Ao enviar a tag `v*`, o workflow [`release.yml`](.github/workflows/release.yml) roda os testes, gera o instalador NSIS e publica a release no GitHub com `nahshot-<versão>-windows-amd64-setup.exe` e o `.exe` avulso. Tags com sufixo (`-beta.1`) saem como prerelease.
+O [`scripts/release.sh`](scripts/release.sh) confere a branch, as mudanças pendentes e se a `main` está em dia com o origin, mostra a próxima tag e pede confirmação (`--dry-run` só mostra). Ao enviar a tag `v*`, o workflow [`release.yml`](.github/workflows/release.yml) gera o instalador NSIS (os testes já rodaram no CI da `main`) e publica a release no GitHub com `nahshot-<versão>-windows-amd64-setup.exe` e o `.exe` avulso. Tags com sufixo (`-beta.1`) saem como prerelease.
 
 ## Onde ficam os prints
 

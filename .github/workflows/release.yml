@@ -22,11 +22,13 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
 
+      # A cache saved from a tag is only visible to that same tag, so saving it is
+      # wasted time; restore whatever main left instead.
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -54,14 +56,9 @@ jobs:
             fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
           ' "$VERSION"
 
-      # tauri-build needs ui/dist before clippy/test can compile the app crate.
-      - name: Test
-        shell: bash
-        run: |
-          (cd ui && npm run build && npm test)
-          cargo fmt --all --check
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace
+      # No test step here: scripts/release.sh only tags a main that is in sync with
+      # origin, and CI already ran fmt, clippy and every test on that exact commit.
+      # Re-running them in debug mode would double the release time.
 
       - name: Build installer
         shell: bash
