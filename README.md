@@ -40,7 +40,7 @@ Um workspace Cargo com três crates:
 
 A UI da galeria, das configurações e da tela de boas-vindas fica em `ui/` (TypeScript puro + Vite, sem framework).
 
-**Por que o overlay é nativo?** A meta é o overlay aparecer em menos de ~150 ms depois do Print Screen e o app ocupar menos de ~30 MB parado. Subir um WebView2 a cada captura é lento demais, e deixar um pré-aquecido custaria ~170 MB de RAM o tempo todo (é o que a galeria aberta consome, somando os processos do WebView2). Então o overlay é uma janela `winit` por monitor que pinta direto num buffer de software com `tiny-skia`, numa thread própria que também atende o hook de teclado. O WebView2 só existe enquanto a galeria (ou as configurações) estiver aberta. Fechou a janela, os processos do WebView2 encerram e o app volta para o consumo de bandeja.
+**Por que o overlay é nativo?** A meta é o overlay aparecer em menos de ~150 ms depois do Print Screen e o app ocupar menos de ~30 MB parado. Subir um WebView2 a cada captura é lento demais, e deixar um pré-aquecido custaria ~198 MB de RAM o tempo todo (é o que a galeria aberta consome, somando os processos do WebView2). Então o overlay é uma janela `winit` por monitor que pinta direto num buffer de software com `tiny-skia`, numa thread própria que também atende o hook de teclado. O WebView2 só existe enquanto a galeria (ou as configurações) estiver aberta. Fechou a janela, os processos do WebView2 encerram e o app volta para o consumo de bandeja.
 
 ## Leveza medida
 
