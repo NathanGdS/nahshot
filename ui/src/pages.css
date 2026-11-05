@@ -178,11 +178,7 @@
 .welcome-mark {
   width: 52px;
   height: 52px;
-  border-radius: 14px;
-  background:
-    linear-gradient(var(--raised), var(--raised)) center / 18px 18px no-repeat,
-    linear-gradient(135deg, #7a93ff, var(--accent) 55%, #3046c9);
-  box-shadow: var(--shadow-pop);
+  background: url("/logo.svg") center / contain no-repeat;
 }
 .welcome h1 {
   margin-top: 6px;
