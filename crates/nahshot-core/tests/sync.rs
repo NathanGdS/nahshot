@@ -3,10 +3,13 @@ mod common;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use chrono::Days;
+use nahshot_core::db::Db;
 use nahshot_core::library::Library;
-use nahshot_core::model::Query;
+use nahshot_core::model::{Filter, PrintId, Query, SortOrder};
 use nahshot_core::sync::SyncReport;
 use nahshot_core::watch::watch;
+use nahshot_core::CoreError;
 
 use common::{lib, png};
 
@@ -24,7 +27,8 @@ fn sync_adds_png_from_explorer_and_ignores_other_files() {
         lib.sync().unwrap(),
         SyncReport {
             added: 2,
-            removed: 0
+            removed: 0,
+            restored: 0,
         }
     );
     let all = lib.query(&Query::default()).unwrap();
@@ -77,7 +81,8 @@ fn sync_removes_orphans_and_keeps_tags_of_survivors() {
         lib.sync().unwrap(),
         SyncReport {
             added: 0,
-            removed: 1
+            removed: 1,
+            restored: 0,
         }
     );
     let all = lib.query(&Query::default()).unwrap();
@@ -218,4 +223,185 @@ fn sync_registers_many_files_in_one_go() {
     }
     assert_eq!(lib.sync().unwrap().added, 200);
     assert_eq!(lib.paths().unwrap().len(), 200);
+}
+
+#[test]
+fn deleting_the_root_and_restoring_it_keeps_tags() {
+    let (d, lib) = lib();
+    let p = lib.import_capture(&png(), t_at()).unwrap();
+    lib.add_tag(p.id, "keep").unwrap();
+    lib.set_favorite(p.id, true).unwrap();
+    // The prints folder goes to the Recycle Bin and the app recreates it empty.
+    let bin = d.path().join("bin");
+    std::fs::rename(lib.root(), &bin).unwrap();
+    std::fs::create_dir_all(lib.root()).unwrap();
+    assert_eq!(lib.sync().unwrap().removed, 1);
+    assert!(lib.query(&Query::default()).unwrap().is_empty());
+    assert!(lib.tags().unwrap().is_empty());
+    // The user restores the folder.
+    std::fs::remove_dir(lib.root()).unwrap();
+    std::fs::rename(&bin, lib.root()).unwrap();
+    assert_eq!(
+        lib.sync().unwrap(),
+        SyncReport {
+            added: 0,
+            removed: 0,
+            restored: 1,
+        }
+    );
+    let all = lib.query(&Query::default()).unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].id, p.id);
+    assert_eq!(all[0].tags, vec!["keep".to_owned()]);
+    assert!(all[0].favorite);
+    assert_eq!(lib.tags().unwrap(), vec!["keep".to_owned()]);
+}
+
+#[test]
+fn moving_a_file_out_and_back_keeps_tags() {
+    let (d, lib) = lib();
+    let p = lib.import_capture(&png(), t_at()).unwrap();
+    lib.add_tag(p.id, "keep").unwrap();
+    lib.set_favorite(p.id, true).unwrap();
+    let desktop = d.path().join("desktop");
+    std::fs::create_dir_all(&desktop).unwrap();
+    let outside = desktop.join(&p.file_name);
+    std::fs::rename(&p.path, &outside).unwrap();
+    assert_eq!(lib.sync().unwrap().removed, 1);
+    assert!(lib.query(&Query::default()).unwrap().is_empty());
+    // Back in, but into an album folder this time.
+    lib.create_album("Memes").unwrap();
+    let back = lib.root().join("Álbuns").join("Memes").join(&p.file_name);
+    std::fs::rename(&outside, &back).unwrap();
+    assert_eq!(
+        lib.sync().unwrap(),
+        SyncReport {
+            added: 0,
+            removed: 0,
+            restored: 1,
+        }
+    );
+    let all = lib.query(&Query::default()).unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].id, p.id);
+    assert_eq!(all[0].path, back);
+    assert_eq!(all[0].album.as_deref(), Some("Memes"));
+    assert_eq!(all[0].tags, vec!["keep".to_owned()]);
+    assert!(all[0].favorite);
+}
+
+#[test]
+fn missing_rows_are_purged_after_retention() {
+    let (d, lib) = lib();
+    let now = t_at();
+    let p = lib.import_capture(&png(), now).unwrap();
+    lib.add_tag(p.id, "keep").unwrap();
+    let aside = d.path().join("aside.png");
+
+    // Back within the retention period: restored.
+    std::fs::rename(&p.path, &aside).unwrap();
+    assert_eq!(lib.sync_at(now).unwrap().removed, 1);
+    std::fs::rename(&aside, &p.path).unwrap();
+    assert_eq!(lib.sync_at(now + Days::new(29)).unwrap().restored, 1);
+    assert_eq!(lib.get(p.id).unwrap().tags, vec!["keep".to_owned()]);
+
+    // Gone longer than that: forgotten for good.
+    std::fs::rename(&p.path, &aside).unwrap();
+    assert_eq!(lib.sync_at(now).unwrap().removed, 1);
+    assert_eq!(
+        lib.sync_at(now + Days::new(31)).unwrap(),
+        SyncReport::default()
+    );
+    std::fs::rename(&aside, &p.path).unwrap();
+    assert_eq!(
+        lib.sync_at(now + Days::new(31)).unwrap(),
+        SyncReport {
+            added: 1,
+            removed: 0,
+            restored: 0,
+        }
+    );
+    let all = lib.query(&Query::default()).unwrap();
+    assert_eq!(all.len(), 1);
+    assert!(all[0].tags.is_empty());
+    assert!(lib.tags().unwrap().is_empty());
+}
+
+#[test]
+fn missing_rows_do_not_count() {
+    let (d, lib) = lib();
+    let a = lib.import_capture(&png(), t_at()).unwrap();
+    let b = lib.import_capture(&png(), t_at()).unwrap();
+    lib.add_tag(a.id, "shared").unwrap();
+    lib.add_tag(a.id, "only-a").unwrap();
+    lib.set_favorite(a.id, true).unwrap();
+    lib.add_tag(b.id, "shared").unwrap();
+    std::fs::remove_file(&a.path).unwrap();
+    assert_eq!(lib.sync().unwrap().removed, 1);
+
+    let ids = |filter: Filter, search: Option<&str>| -> Vec<PrintId> {
+        lib.query(&Query {
+            filter,
+            search: search.map(str::to_owned),
+            order: SortOrder::NewestFirst,
+        })
+        .unwrap()
+        .into_iter()
+        .map(|p| p.id)
+        .collect()
+    };
+    assert_eq!(ids(Filter::All, None), vec![b.id]);
+    assert!(ids(Filter::Favorites, None).is_empty());
+    assert!(ids(Filter::Tag("only-a".into()), None).is_empty());
+    assert!(ids(Filter::All, Some("only")).is_empty());
+    assert_eq!(lib.tags().unwrap(), vec!["shared".to_owned()]);
+    assert_eq!(lib.paths().unwrap(), vec![b.path.clone()]);
+    assert!(matches!(lib.get(a.id), Err(CoreError::PrintNotFound(_))));
+
+    let db = Db::open(&d.path().join("db.sqlite")).unwrap();
+    assert_eq!(db.count().unwrap(), 1);
+    assert_eq!(db.all_paths().unwrap(), vec![(b.id, b.path.clone())]);
+    assert_eq!(
+        db.all().unwrap().iter().map(|r| r.id).collect::<Vec<_>>(),
+        vec![b.id]
+    );
+    assert_eq!(db.tags().unwrap(), vec!["shared".to_owned()]);
+}
+
+#[test]
+fn adopting_a_print_marked_missing_keeps_its_tags() {
+    let (d, lib) = lib();
+    let p = lib.import_capture(&png(), t_at()).unwrap();
+    lib.add_tag(p.id, "keep").unwrap();
+    // The print ends up aside (e.g. a move that failed half way) and sync misses it.
+    let unsaved = d.path().join("unsaved");
+    std::fs::create_dir_all(&unsaved).unwrap();
+    std::fs::rename(&p.path, unsaved.join(&p.file_name)).unwrap();
+    assert_eq!(lib.sync().unwrap().removed, 1);
+    assert_eq!(lib.adopt(&unsaved).unwrap(), 1);
+    let back = lib.get(p.id).unwrap();
+    assert_eq!(back.path, p.path);
+    assert_eq!(back.tags, vec!["keep".to_owned()]);
+    assert_eq!(lib.sync().unwrap(), SyncReport::default());
+}
+
+#[test]
+fn moving_a_file_inside_the_root_between_syncs_keeps_tags() {
+    let (_d, lib) = lib();
+    let p = lib.import_capture(&png(), t_at()).unwrap();
+    lib.add_tag(p.id, "keep").unwrap();
+    lib.create_album("Memes").unwrap();
+    let moved = lib.root().join("Álbuns").join("Memes").join(&p.file_name);
+    std::fs::rename(&p.path, &moved).unwrap();
+    assert_eq!(
+        lib.sync().unwrap(),
+        SyncReport {
+            added: 0,
+            removed: 0,
+            restored: 1,
+        }
+    );
+    let back = lib.get(p.id).unwrap();
+    assert_eq!(back.path, moved);
+    assert_eq!(back.tags, vec!["keep".to_owned()]);
 }

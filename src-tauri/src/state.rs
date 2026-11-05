@@ -65,7 +65,10 @@ pub fn resync(app: &AppHandle) {
     };
     match synced {
         Ok((r, paths)) => {
-            info!("library sync: +{} -{}", r.added, r.removed);
+            info!(
+                "library sync: +{} -{} restored {}",
+                r.added, r.removed, r.restored
+            );
             prune_thumbs(&state.thumbs, &paths);
             emit_library_changed(app);
         }
@@ -73,8 +76,9 @@ pub fn resync(app: &AppHandle) {
     }
 }
 
-/// Deletes cached thumbnails that belong to no registered print. Thumbnails of
-/// prints that are unreachable right now go too; they are rebuilt when needed.
+/// Deletes cached thumbnails that belong to no present print (`prints` comes from
+/// [`Library::paths`], which leaves out prints marked missing). Thumbnails of prints
+/// that are unreachable or missing right now go too; they are rebuilt when needed.
 fn prune_thumbs(thumbs: &ThumbCache, prints: &[PathBuf]) {
     let keep: HashSet<PathBuf> = prints
         .iter()

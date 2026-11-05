@@ -64,7 +64,7 @@ impl Library {
         Ok(self.print(self.db.get(id)?))
     }
 
-    /// Paths of every registered print, in no particular order.
+    /// Paths of every present print (not those marked missing), in no particular order.
     pub fn paths(&self) -> Result<Vec<PathBuf>> {
         Ok(self.db.all_paths()?.into_iter().map(|(_, p)| p).collect())
     }
@@ -222,7 +222,8 @@ impl Library {
         Ok(())
     }
 
-    /// Sends prints to the Recycle Bin and forgets them.
+    /// Sends prints to the Recycle Bin and forgets them for good: an explicit delete
+    /// drops the row and its tags at once instead of marking it missing.
     pub fn delete(&self, ids: &[PrintId]) -> Result<()> {
         for &id in ids {
             let row = self.db.get(id)?;
