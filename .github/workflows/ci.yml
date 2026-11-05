@@ -8,10 +8,26 @@ on:
       - 'docs/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
 
+# A new push to the same PR/branch cancels the run that is still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No debug info in CI builds: much faster linking and a smaller cache to save/restore.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_TERM_COLOR: always
+
+# Lint and tests run in parallel on separate runners; each keeps its own cargo cache,
+# saved only from main so PR runs don't spend minutes uploading it.
 jobs:
-  test:
-    name: Test
+  lint:
+    name: Lint
     # Windows: the overlay, hotkeys, registry and installer are Windows-only.
     runs-on: windows-latest
 
@@ -25,6 +41,8 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -33,22 +51,50 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
-      - name: Install frontend dependencies
+      # tauri-build needs ui/dist to compile the app crate.
+      - name: Build frontend
         working-directory: ui
-        run: npm ci
+        run: |
+          npm ci
+          npm run build
+
+      - name: Rust fmt and clippy
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: Test
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
 
       # Type-checks (tsc) and builds ui/dist, which tauri-build needs to compile the app.
       - name: Frontend build and tests
         working-directory: ui
         run: |
+          npm ci
           npm run build
           npm test
 
-      - name: Rust fmt, clippy and tests
-        run: |
-          cargo fmt --all --check
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace
+      - name: Rust tests
+        run: cargo test --workspace
 
       - name: Release script tests
         shell: bash
