@@ -24,6 +24,14 @@ pub enum CoreError {
     /// No album with that name exists.
     #[error("album not found: {0}")]
     AlbumNotFound(String),
+    /// The file was saved at `path` but registering it in the store failed.
+    #[error("saved to {} but not registered: {source}", path.display())]
+    Unregistered {
+        /// Where the file was written.
+        path: std::path::PathBuf,
+        /// Why registering it failed.
+        source: Box<CoreError>,
+    },
     /// No print with that id exists.
     #[error("print not found: {0}")]
     PrintNotFound(i64),

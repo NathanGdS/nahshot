@@ -43,17 +43,30 @@ impl Library {
     }
 
     /// Stores a captured PNG in its month folder and registers it.
+    ///
+    /// If the file was written but could not be registered, fails with
+    /// [`CoreError::Unregistered`]: the print is safe on disk and the next sync adopts it.
     pub fn import_capture(&self, png: &[u8], at: NaiveDateTime) -> Result<Print> {
         let dir = month_dir(&self.root, at);
         fs::create_dir_all(&dir)?;
         let path = write_new(&dir, &file_name_for(at), png)?;
-        let id = self.db.insert(&path, at)?;
-        self.get(id)
+        self.db
+            .insert(&path, at)
+            .and_then(|id| self.get(id))
+            .map_err(|source| CoreError::Unregistered {
+                path,
+                source: Box::new(source),
+            })
     }
 
     /// Fetches one print.
     pub fn get(&self, id: PrintId) -> Result<Print> {
         Ok(self.print(self.db.get(id)?))
+    }
+
+    /// Paths of every registered print, in no particular order.
+    pub fn paths(&self) -> Result<Vec<PathBuf>> {
+        Ok(self.db.all_paths()?.into_iter().map(|(_, p)| p).collect())
     }
 
     /// Runs a gallery query.
@@ -301,8 +314,9 @@ fn reserve(dir: &Path, file_name: &str) -> Result<(PathBuf, fs::File)> {
     }
 }
 
-/// Writes `bytes` to a new, never-overwritten file in `dir`.
-fn write_new(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<PathBuf> {
+/// Writes `bytes` to a new file in `dir` named `file_name` (or `stem_N.ext` when taken);
+/// never overwrites. Returns the path written.
+pub fn write_new(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<PathBuf> {
     let (path, mut file) = reserve(dir, file_name)?;
     if let Err(e) = file.write_all(bytes) {
         drop(file);
@@ -313,7 +327,7 @@ fn write_new(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<PathBuf> {
 }
 
 /// Moves `from` into `dir` under a free name; falls back to copy + delete across devices.
-fn move_file(from: &Path, dir: &Path, file_name: &str) -> Result<PathBuf> {
+pub(crate) fn move_file(from: &Path, dir: &Path, file_name: &str) -> Result<PathBuf> {
     // The reserved placeholder is replaced by the rename, so the name stays ours.
     let (to, placeholder) = reserve(dir, file_name)?;
     drop(placeholder);

@@ -3,7 +3,7 @@ mod common;
 use std::path::PathBuf;
 
 use chrono::NaiveDateTime;
-use nahshot_core::library::{album_of, Library};
+use nahshot_core::library::{album_of, write_new, Library};
 use nahshot_core::model::{Filter, PrintId, Query, SortOrder};
 use nahshot_core::CoreError;
 
@@ -252,6 +252,7 @@ fn query_filters_search_and_order() {
 }
 
 #[test]
+#[ignore = "uses the real Recycle Bin"]
 fn delete_removes_from_gallery() {
     let (_d, lib) = lib();
     let p = lib.import_capture(&png(), t0()).unwrap();
@@ -418,4 +419,66 @@ fn relocate_to_same_root_spelled_differently_moves_nothing() {
     let upper = PathBuf::from(lib.root().to_string_lossy().to_uppercase());
     assert_eq!(lib.relocate(upper, true).unwrap().moved, 0);
     assert_eq!(lib.get(p.id).unwrap().path, p.path);
+}
+
+#[test]
+fn write_new_never_overwrites() {
+    let d = tempfile::tempdir().unwrap();
+    let a = write_new(d.path(), "a.png", b"one").unwrap();
+    let b = write_new(d.path(), "a.png", b"two").unwrap();
+    assert_eq!(a, d.path().join("a.png"));
+    assert_eq!(b, d.path().join("a_2.png"));
+    assert_eq!(std::fs::read(a).unwrap(), b"one");
+    assert_eq!(std::fs::read(b).unwrap(), b"two");
+}
+
+#[test]
+fn adopt_moves_unsaved_pngs_into_month_folders_and_registers_them() {
+    let (d, lib) = lib();
+    let unsaved = d.path().join("unsaved");
+    std::fs::create_dir_all(&unsaved).unwrap();
+    std::fs::write(unsaved.join("2026-10-01_08-00-00.png"), png()).unwrap();
+    std::fs::write(unsaved.join("notes.txt"), b"x").unwrap();
+    // A print with the same name already sits in the month folder: never overwrite it.
+    let month = lib.root().join("2026-10");
+    std::fs::create_dir_all(&month).unwrap();
+    std::fs::write(month.join("2026-10-01_08-00-00.png"), b"older").unwrap();
+
+    assert_eq!(lib.adopt(&unsaved).unwrap(), 1);
+    assert!(!unsaved.join("2026-10-01_08-00-00.png").exists());
+    assert!(unsaved.join("notes.txt").exists());
+    assert_eq!(
+        std::fs::read(month.join("2026-10-01_08-00-00.png")).unwrap(),
+        b"older"
+    );
+    let adopted = month.join("2026-10-01_08-00-00_2.png");
+    assert_eq!(std::fs::read(&adopted).unwrap(), png());
+    let all = lib.query(&Query::default()).unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].path, adopted);
+    assert_eq!(all[0].captured_at, t("2026-10-01 08:00:00"));
+}
+
+#[test]
+fn adopt_without_folder_does_nothing() {
+    let (d, lib) = lib();
+    assert_eq!(lib.adopt(&d.path().join("missing")).unwrap(), 0);
+}
+
+#[test]
+fn import_reports_a_written_but_unregistered_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db.sqlite");
+    let lib = Library::open(dir.path().join("root"), &db).unwrap();
+    // Break the store behind the library's back so only the insert fails.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch("DROP TABLE print_tags; DROP TABLE prints;")
+        .unwrap();
+    match lib.import_capture(&png(), t0()) {
+        Err(CoreError::Unregistered { path, .. }) => {
+            assert_eq!(std::fs::read(path).unwrap(), png());
+        }
+        other => panic!("expected Unregistered, got {other:?}"),
+    }
 }
