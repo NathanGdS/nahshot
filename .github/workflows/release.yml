@@ -1,0 +1,83 @@
+# Builds the Windows installer and publishes a GitHub release.
+# Runs only when a version tag is pushed: use `make release` (scripts/release.sh).
+# Tag format: v0.1.0 (stable) or v0.1.0-beta.1 (prerelease).
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build installer and publish
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ui
+        run: npm ci
+
+      # The tag is the source of truth for the version. Windows version resources only
+      # take numbers, so a prerelease (1.2.0-beta.1) is stamped as 1.2.0.
+      - name: Stamp version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          node -e '
+            const fs = require("fs");
+            const file = "src-tauri/tauri.conf.json";
+            const cfg = JSON.parse(fs.readFileSync(file, "utf8"));
+            cfg.version = process.argv[1].split("-")[0];
+            fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
+          ' "$VERSION"
+
+      # tauri-build needs ui/dist before clippy/test can compile the app crate.
+      - name: Test
+        shell: bash
+        run: |
+          (cd ui && npm run build && npm test)
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+
+      - name: Build installer
+        shell: bash
+        run: |
+          npm --prefix ui run tauri build
+          mkdir -p dist-release
+          cp target/release/nahshot.exe                       "dist-release/nahshot-${VERSION}-windows-amd64.exe"
+          cp target/release/bundle/nsis/nahshot_*_x64-setup.exe "dist-release/nahshot-${VERSION}-windows-amd64-setup.exe"
+          ls -l dist-release
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-release/nahshot-${{ env.VERSION }}-windows-amd64-setup.exe
+            dist-release/nahshot-${{ env.VERSION }}-windows-amd64.exe
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true

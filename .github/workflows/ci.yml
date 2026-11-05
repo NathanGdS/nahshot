@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test
+    # Windows: the overlay, hotkeys, registry and installer are Windows-only.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ui
+        run: npm ci
+
+      # Type-checks (tsc) and builds ui/dist, which tauri-build needs to compile the app.
+      - name: Frontend build and tests
+        working-directory: ui
+        run: |
+          npm run build
+          npm test
+
+      - name: Rust fmt, clippy and tests
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+
+      - name: Release script tests
+        shell: bash
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          bash scripts/release_test.sh
