@@ -86,6 +86,19 @@ npm --prefix ui test
 
 Um `cargo build` ou `cargo clippy` direto, num clone novo, precisa de `ui/dist`. Rode `npm --prefix ui run build` antes (o Tauri CLI faz isso sozinho).
 
+O `Makefile` tem atalhos para tudo isso (`make dev`, `make build`, `make test`, `make lint`).
+
+## Releases
+
+A versão vem da tag. Para publicar, na `main` atualizada e sem mudanças pendentes:
+
+```powershell
+make release            # próximo patch (ex.: v0.1.0 → v0.1.1)
+make release V=minor    # ou V=major, ou V=1.2.0, ou V=1.2.0-beta.1
+```
+
+O [`scripts/release.sh`](scripts/release.sh) confere a branch, as mudanças pendentes e se a `main` está em dia com o origin, mostra a próxima tag e pede confirmação (`--dry-run` só mostra). Ao enviar a tag `v*`, o workflow [`release.yml`](.github/workflows/release.yml) roda os testes, gera o instalador NSIS e publica a release no GitHub com `nahshot-<versão>-windows-amd64-setup.exe` e o `.exe` avulso. Tags com sufixo (`-beta.1`) saem como prerelease.
+
 ## Onde ficam os prints
 
 Por padrão em `%USERPROFILE%\Pictures\nahshot` (segue a pasta Imagens do Windows, inclusive se ela estiver no OneDrive), configurável:
