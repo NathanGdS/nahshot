@@ -1,5 +1,6 @@
 //! The nahshot desktop app: tray icon, settings and the capture-to-gallery flow.
 
+pub mod asset_scope;
 pub mod capture_flow;
 pub mod commands;
 pub mod settings;
@@ -95,9 +96,7 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let thumbs = ThumbCache::new(thumbs_dir.clone())?;
     // The prints folder can be anywhere, so the webview's asset scope is set here
     // rather than statically: thumbnails in the grid, full images in the viewer.
-    let assets = app.asset_protocol_scope();
-    assets.allow_directory(&thumbs_dir, true)?;
-    assets.allow_directory(lib.root(), true)?;
+    asset_scope::allow_library(app, &lib, &thumbs_dir)?;
     let overlay = spawn_overlay(capture_flow::dispatcher(app.clone()));
     overlay.set_hotkeys(settings.hotkey_config());
     let prints_dir = settings.prints_dir.clone();

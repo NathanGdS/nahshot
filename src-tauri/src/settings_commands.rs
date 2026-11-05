@@ -38,10 +38,17 @@ pub async fn get_settings(app: AppHandle) -> Settings {
 pub async fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<()> {
     blocking(app, move |app, state| {
         sync_autostart(app, enabled).map_err(|e| e.to_string())?;
-        state.update_settings(app, |s| {
+        let saved = state.update_settings(app, |s| {
             s.autostart = enabled;
             Ok(())
-        })
+        });
+        if saved.is_err() {
+            // Keep Windows in line with the settings that are still on disk.
+            if let Err(e) = sync_autostart(app, !enabled) {
+                error!("reverting autostart: {e}");
+            }
+        }
+        saved
     })
     .await
 }

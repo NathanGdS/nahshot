@@ -1,7 +1,7 @@
 //! Shared state managed by Tauri for the whole app lifetime.
 
 use crate::capture_flow::LIBRARY_CHANGED;
-use crate::settings::Settings;
+use crate::settings::{commit, revert_side_effects, Settings};
 use log::{error, info};
 use nahshot_capture::overlay::OverlayHandle;
 use nahshot_core::library::Library;
@@ -27,18 +27,21 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Applies `change` to the settings and, if it succeeds, saves them right away
-    /// and tells every open window.
+    /// Applies `change` to a copy of the settings, saves it and only then makes it
+    /// live, telling every open window. If saving fails the live settings stay as
+    /// they were, and the registry and hotkeys `change` touched are reverted.
     pub fn update_settings<T>(
         &self,
         app: &AppHandle,
         change: impl FnOnce(&mut Settings) -> Result<T, String>,
     ) -> Result<T, String> {
         let mut settings = self.settings.lock().unwrap_or_else(PoisonError::into_inner);
-        let out = change(&mut settings)?;
-        settings
-            .save(&self.settings_path)
-            .map_err(|e| format!("saving settings: {e}"))?;
+        let out = commit(
+            &mut settings,
+            &self.settings_path,
+            change,
+            |before, after| revert_side_effects(before, after, &self.overlay),
+        )?;
         if let Err(e) = app.emit(SETTINGS_CHANGED, &*settings) {
             error!("emitting {SETTINGS_CHANGED}: {e}");
         }

@@ -153,6 +153,52 @@ pub fn apply_print_screen_default_at(
     Ok(())
 }
 
+/// Applies `change` to a copy of `live`, saves the copy to `path` and only then
+/// makes it live, so memory never runs ahead of the disk. If saving fails, `live`
+/// is untouched and `undo(before, after)` reverts what `change` did outside it.
+pub fn commit<T>(
+    live: &mut Settings,
+    path: &Path,
+    change: impl FnOnce(&mut Settings) -> Result<T, String>,
+    undo: impl FnOnce(&Settings, &Settings),
+) -> Result<T, String> {
+    let mut next = live.clone();
+    let out = change(&mut next)?;
+    if let Err(e) = next.save(path) {
+        undo(live, &next);
+        return Err(format!("saving settings: {e}"));
+    }
+    *live = next;
+    Ok(out)
+}
+
+/// Undoes the side effects of moving from `before` to `after` that were never
+/// saved: the Print Screen registry value and the installed hotkeys.
+pub fn revert_side_effects(before: &Settings, after: &Settings, overlay: &OverlayHandle) {
+    revert_side_effects_at(KEYBOARD_KEY, before, after, &|cfg| overlay.set_hotkeys(cfg));
+}
+
+/// [`revert_side_effects`] against `HKCU\<key_path>`.
+pub fn revert_side_effects_at(
+    key_path: &str,
+    before: &Settings,
+    after: &Settings,
+    set_hotkeys: &dyn Fn(HotkeyConfig),
+) {
+    if before.default_print_screen != after.default_print_screen {
+        let mut undone = after.clone();
+        if let Err(e) = apply_print_screen_default_at(
+            key_path,
+            before.default_print_screen,
+            &mut undone,
+            set_hotkeys,
+        ) {
+            warn!("reverting the Print Screen setting: {e}");
+        }
+    }
+    set_hotkeys(before.hotkey_config());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,12 +207,12 @@ mod tests {
     const TEST_ROOT: &str = r"Software\nahshot-app-test";
     const TEST_KEY: &str = r"Software\nahshot-app-test\Keyboard";
 
-    /// Deletes `HKCU\Software\nahshot-app-test` even when an assertion fails.
-    struct Cleanup;
+    /// Deletes `HKCU\<root>` even when an assertion fails.
+    struct Cleanup(&'static str);
     impl Drop for Cleanup {
         fn drop(&mut self) {
             use windows_sys::Win32::System::Registry::{RegDeleteTreeW, HKEY_CURRENT_USER};
-            let root: Vec<u16> = TEST_ROOT.encode_utf16().chain([0]).collect();
+            let root: Vec<u16> = self.0.encode_utf16().chain([0]).collect();
             // SAFETY: `root` is a NUL-terminated UTF-16 string that outlives the call.
             unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, root.as_ptr()) };
         }
@@ -174,7 +220,7 @@ mod tests {
 
     #[test]
     fn print_screen_default_restores_previous_value() {
-        let _cleanup = Cleanup;
+        let _cleanup = Cleanup(TEST_ROOT);
         for initial in [Some(1), None] {
             write_snipping(TEST_KEY, initial).unwrap();
             let mut settings = Settings::default();
@@ -279,5 +325,64 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(s.hotkey_config().alt.as_deref(), Some("Ctrl+Alt+P"));
+    }
+
+    #[test]
+    fn failed_save_keeps_live_settings_and_restores_registry() {
+        const ROOT: &str = r"Software\nahshot-app-test-commit";
+        const KEY: &str = r"Software\nahshot-app-test-commit\Keyboard";
+        let _cleanup = Cleanup(ROOT);
+        write_snipping(KEY, Some(1)).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        // A file where the settings folder should be: saving cannot succeed.
+        let blocker = dir.path().join("blocker");
+        fs::write(&blocker, "").unwrap();
+        let path = blocker.join("settings.json");
+
+        let mut live = Settings::default();
+        let applied = RefCell::new(Vec::new());
+        let record = |cfg: HotkeyConfig| applied.borrow_mut().push(cfg);
+        let result = commit(
+            &mut live,
+            &path,
+            |s| apply_print_screen_default_at(KEY, true, s, &record).map_err(|e| e.to_string()),
+            |before, after| revert_side_effects_at(KEY, before, after, &record),
+        );
+
+        assert!(result.unwrap_err().starts_with("saving settings"));
+        assert_eq!(live, Settings::default());
+        assert_eq!(read_snipping(KEY).unwrap(), Some(1));
+        let last = applied.borrow().last().cloned().unwrap();
+        assert!(!last.intercept_print_screen);
+    }
+
+    #[test]
+    fn successful_commit_saves_then_goes_live() {
+        let (_dir, path) = temp();
+        let mut live = Settings::default();
+        let out = commit(
+            &mut live,
+            &path,
+            |s| {
+                s.theme = Theme::Dark;
+                Ok(7)
+            },
+            |_, _| panic!("no undo on success"),
+        );
+        assert_eq!(out, Ok(7));
+        assert_eq!(live.theme, Theme::Dark);
+        assert_eq!(Settings::load(&path), live);
+
+        let err = commit(
+            &mut live,
+            &path,
+            |s| {
+                s.theme = Theme::Light;
+                Err::<(), _>("nope".to_owned())
+            },
+            |_, _| panic!("no undo when the change itself fails"),
+        );
+        assert_eq!(err, Err("nope".to_owned()));
+        assert_eq!(live.theme, Theme::Dark);
     }
 }
