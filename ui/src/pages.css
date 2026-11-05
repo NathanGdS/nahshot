@@ -1,0 +1,211 @@
+/* nahshot — settings and welcome windows. Builds on theme.css tokens. */
+
+.page {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--surface);
+}
+
+/* ---- settings ------------------------------------------------------------------ */
+
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 22px 28px 14px;
+}
+.page-header h1 {
+  font: 600 20px/1.2 var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 20px 24px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+}
+.row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.row-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.row-desc {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.row-control {
+  flex: none;
+}
+
+.path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 12px;
+  user-select: text;
+}
+
+/* A checkbox drawn as a switch. */
+.switch {
+  appearance: none;
+  position: relative;
+  width: 40px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid var(--text-2);
+  border-radius: 10px;
+  background: transparent;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition: transform 120ms ease, background 120ms ease;
+}
+.switch:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.switch:checked::before {
+  background: var(--accent-text);
+  transform: translateX(20px);
+}
+.switch:disabled {
+  opacity: 0.6;
+}
+
+.hotkey {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 160px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-bottom-color: color-mix(in srgb, var(--border-strong), var(--text) 25%);
+  border-radius: 6px;
+  background: var(--raised);
+}
+.hotkey:hover {
+  background: color-mix(in srgb, var(--raised), var(--text) 4%);
+}
+.hotkey.recording {
+  border-bottom: 2px solid var(--accent);
+  background: var(--accent-soft);
+}
+.hotkey kbd,
+.keycap {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  font: 600 11px/1 var(--font);
+}
+.hotkey-plus {
+  color: var(--text-3);
+}
+.hotkey-hint {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.segment {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+}
+.segment:hover {
+  color: var(--text);
+}
+.segment[aria-checked="true"] {
+  background: var(--raised);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---- welcome ------------------------------------------------------------------- */
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px 40px;
+  text-align: center;
+}
+.welcome-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background:
+    linear-gradient(var(--raised), var(--raised)) center / 18px 18px no-repeat,
+    linear-gradient(135deg, #7a93ff, var(--accent) 55%, #3046c9);
+  box-shadow: var(--shadow-pop);
+}
+.welcome h1 {
+  margin-top: 6px;
+  font: 600 22px/1.2 var(--font-display);
+  letter-spacing: -0.01em;
+}
+.welcome-text {
+  max-width: 360px;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.keycap {
+  min-width: 72px;
+  height: 40px;
+  margin: 4px 0;
+  border-bottom-width: 4px;
+  border-radius: 8px;
+  background: var(--raised);
+  font-size: 14px;
+}
+.welcome-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}

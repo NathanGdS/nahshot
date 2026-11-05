@@ -304,3 +304,118 @@ fn album_names_resolve_case_insensitively() {
         Err(CoreError::AlbumNotFound(_))
     ));
 }
+
+#[test]
+fn relocate_with_move_preserves_structure() {
+    let (d, mut lib) = lib();
+    let month = lib.import_capture(&png(), t0()).unwrap();
+    let album = lib
+        .import_capture(&png(), t("2026-10-01 08:00:00"))
+        .unwrap();
+    lib.create_album("Bugs").unwrap();
+    lib.move_to_album(&[album.id], "Bugs").unwrap();
+
+    let new_root = d.path().join("new");
+    let report = lib.relocate(new_root.clone(), true).unwrap();
+    assert_eq!(report.moved, 2);
+    assert!(report.failed.is_empty());
+    assert_eq!(lib.root(), new_root);
+
+    let month = lib.get(month.id).unwrap();
+    assert_eq!(
+        month.path,
+        new_root.join("2026-11").join("2026-11-04_14-32-10.png")
+    );
+    let album = lib.get(album.id).unwrap();
+    assert_eq!(
+        album.path,
+        new_root
+            .join("Álbuns")
+            .join("Bugs")
+            .join("2026-10-01_08-00-00.png")
+    );
+    assert_eq!(album.album.as_deref(), Some("Bugs"));
+    assert!(month.path.exists() && album.path.exists());
+    assert_eq!(lib.albums().unwrap(), vec!["Bugs"]);
+    assert_eq!(lib.sync().unwrap().removed, 0);
+}
+
+#[test]
+fn relocate_without_move_keeps_old_prints_visible() {
+    let (d, mut lib) = lib();
+    let old = lib.import_capture(&png(), t0()).unwrap();
+    let new_root = d.path().join("new");
+    let report = lib.relocate(new_root.clone(), false).unwrap();
+    assert_eq!(report.moved, 0);
+    assert_eq!(lib.root(), new_root);
+
+    let all = query(Filter::All, None, SortOrder::NewestFirst);
+    assert_eq!(ids(&lib, &all), vec![old.id]);
+    assert_eq!(lib.sync().unwrap().removed, 0);
+    assert_eq!(lib.get(old.id).unwrap().path, old.path);
+    assert!(old.path.exists());
+    // New captures land under the new root.
+    let new = lib.import_capture(&png(), t0()).unwrap();
+    assert!(new.path.starts_with(&new_root));
+}
+
+#[test]
+fn relocate_counts_failures_without_aborting() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let (d, mut lib) = lib();
+    let locked = lib.import_capture(&png(), t0()).unwrap();
+    let free = lib
+        .import_capture(&png(), t("2026-11-05 09:00:00"))
+        .unwrap();
+    // No sharing at all: the file can be neither renamed nor deleted while open.
+    let _handle = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&locked.path)
+        .unwrap();
+
+    let new_root = d.path().join("new");
+    let report = lib.relocate(new_root.clone(), true).unwrap();
+    assert_eq!(report.moved, 1);
+    assert_eq!(report.failed, vec![locked.path.clone()]);
+    assert_eq!(lib.get(locked.id).unwrap().path, locked.path);
+    assert!(locked.path.exists());
+    let free = lib.get(free.id).unwrap();
+    assert!(free.path.starts_with(&new_root) && free.path.exists());
+    // No half-moved copy or placeholder is left behind.
+    assert!(!new_root.join("2026-11").join(&locked.file_name).exists());
+}
+
+#[test]
+fn relocate_leaves_prints_outside_old_root_alone() {
+    let (d, mut lib) = lib();
+    let p = lib.import_capture(&png(), t0()).unwrap();
+    let first = d.path().join("first");
+    lib.relocate(first.clone(), false).unwrap();
+    let report = lib.relocate(d.path().join("second"), true).unwrap();
+    assert_eq!(report.moved, 0);
+    assert!(report.failed.is_empty());
+    assert_eq!(lib.get(p.id).unwrap().path, p.path);
+}
+
+#[test]
+fn relocate_to_same_root_moves_nothing() {
+    let (_d, mut lib) = lib();
+    let p = lib.import_capture(&png(), t0()).unwrap();
+    let root = lib.root().to_path_buf();
+    let report = lib.relocate(root, true).unwrap();
+    assert_eq!(report.moved, 0);
+    let p2 = lib.get(p.id).unwrap();
+    assert_eq!(p2.path, p.path);
+    assert_eq!(p2.file_name, "2026-11-04_14-32-10.png");
+}
+
+#[test]
+fn relocate_to_same_root_spelled_differently_moves_nothing() {
+    let (_d, mut lib) = lib();
+    let p = lib.import_capture(&png(), t0()).unwrap();
+    let upper = PathBuf::from(lib.root().to_string_lossy().to_uppercase());
+    assert_eq!(lib.relocate(upper, true).unwrap().moved, 0);
+    assert_eq!(lib.get(p.id).unwrap().path, p.path);
+}

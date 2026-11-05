@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>nahshot · Galeria</title>
+    <script type="module" src="/src/gallery.ts"></script>
+  </head>
+  <body>
+    <div class="app">
+      <aside id="sidebar" class="sidebar" aria-label="Navegação"></aside>
+      <main class="main">
+        <header class="toolbar">
+          <div class="toolbar-title">
+            <h1 id="title">Todos</h1>
+            <span id="subtitle" class="toolbar-subtitle"></span>
+          </div>
+          <label class="search">
+            <span id="search-icon"></span>
+            <input id="search" type="search" placeholder="Buscar por nome, etiqueta ou álbum…" spellcheck="false" autocomplete="off" />
+          </label>
+          <button id="sort" class="btn btn-ghost sort" type="button"></button>
+        </header>
+        <div id="content" class="content">
+          <div id="grid" class="grid"></div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

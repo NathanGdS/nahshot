@@ -242,7 +242,7 @@ impl Library {
         self.move_row(row, &dir)
     }
 
-    fn move_row(&self, row: &PrintRow, dir: &Path) -> Result<()> {
+    pub(crate) fn move_row(&self, row: &PrintRow, dir: &Path) -> Result<()> {
         let file_name = row
             .path
             .file_name()

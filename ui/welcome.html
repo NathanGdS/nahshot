@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>Bem-vindo ao nahshot</title>
+    <script type="module" src="/src/welcome.ts"></script>
+  </head>
+  <body>
+    <main class="page welcome">
+      <span class="brand-mark welcome-mark" aria-hidden="true"></span>
+      <h1>Bem-vindo ao nahshot</h1>
+      <p class="welcome-text">
+        Quer usar o nahshot quando apertar Print Screen? Você pode mudar isso depois nas Configurações.
+      </p>
+      <kbd class="keycap" aria-hidden="true">PrtSc</kbd>
+      <p id="error" class="field-error" role="alert"></p>
+      <div class="welcome-actions">
+        <button id="later" class="btn" type="button">Agora não</button>
+        <button id="yes" class="btn btn-primary" type="button">Sim, usar o nahshot</button>
+      </div>
+    </main>
+  </body>
+</html>
