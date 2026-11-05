@@ -1,14 +1,16 @@
 //! The webview windows. Each exists only while open: closing destroys it.
 
 use crate::settings::Theme;
-use crate::state::AppState;
+use crate::state::{self, AppState};
 use log::error;
 use std::sync::PoisonError;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
-/// Opens (or focuses) the gallery.
+/// Opens (or focuses) the gallery. A newly opened gallery triggers a folder rescan.
 pub fn open_gallery(app: &AppHandle) {
-    open(app, "gallery", "gallery.html", "nahshot", (1100.0, 720.0));
+    if open(app, "gallery", "gallery.html", "nahshot", (1100.0, 720.0)) {
+        state::gallery_opened(app);
+    }
 }
 
 /// Opens (or focuses) the settings window.
@@ -33,13 +35,20 @@ pub fn open_welcome(app: &AppHandle) {
     );
 }
 
-fn open(app: &AppHandle, label: &str, page: &str, title: &str, (width, height): (f64, f64)) {
+/// Focuses the window `label`, or builds it; `true` only when a new window was built.
+fn open(
+    app: &AppHandle,
+    label: &str,
+    page: &str,
+    title: &str,
+    (width, height): (f64, f64),
+) -> bool {
     if let Some(window) = app.get_webview_window(label) {
         let _ = window.unminimize();
         if let Err(e) = window.set_focus() {
             error!("focusing window {label}: {e}");
         }
-        return;
+        return false;
     }
     let url = format!("{page}?theme={}", current_theme(app).as_str());
     let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
@@ -49,9 +58,9 @@ fn open(app: &AppHandle, label: &str, page: &str, title: &str, (width, height): 
         // Tauri's file-drop handler would swallow the gallery's HTML5 drag and drop.
         .disable_drag_drop_handler()
         .build();
-    if let Err(e) = built {
-        error!("opening window {label}: {e}");
-    }
+    built
+        .inspect_err(|e| error!("opening window {label}: {e}"))
+        .is_ok()
 }
 
 /// The theme from the settings, or the system one before the state exists.
