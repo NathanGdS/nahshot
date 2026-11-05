@@ -66,8 +66,8 @@ pub fn resync(app: &AppHandle) {
     match synced {
         Ok((r, paths)) => {
             info!(
-                "library sync: +{} -{} restored {}",
-                r.added, r.removed, r.restored
+                "library sync: +{} -{} restored {} purged {}",
+                r.added, r.removed, r.restored, r.purged
             );
             prune_thumbs(&state.thumbs, &paths);
             emit_library_changed(app);

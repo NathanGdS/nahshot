@@ -29,6 +29,8 @@ pub struct SyncReport {
     pub removed: usize,
     /// Rows marked missing that found their file again, at the same path or moved.
     pub restored: usize,
+    /// Rows forgotten for good after being missing longer than the retention period.
+    pub purged: usize,
 }
 
 impl Library {
@@ -58,8 +60,9 @@ impl Library {
             for row in db.tracked()? {
                 match (row.missing, row.path.exists()) {
                     (true, true) => {
-                        db.mark_present(row.id)?;
-                        report.restored += 1;
+                        if db.restore_in_place(row.id)? {
+                            report.restored += 1;
+                        }
                     }
                     (false, false) if self.gone_for_good(&row.path, root_reachable) => {
                         db.mark_missing(row.id, now)?;
@@ -85,7 +88,7 @@ impl Library {
             }
             report.removed = marked.len();
             if let Some(cutoff) = now.checked_sub_signed(TimeDelta::days(MISSING_RETENTION_DAYS)) {
-                db.purge_missing_before(cutoff)?;
+                report.purged = db.purge_missing_before(cutoff)?;
             }
             Ok(report)
         })
