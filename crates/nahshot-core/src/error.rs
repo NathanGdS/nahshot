@@ -35,6 +35,9 @@ pub enum CoreError {
     /// No print with that id exists.
     #[error("print not found: {0}")]
     PrintNotFound(i64),
+    /// The metadata database was written by a newer nahshot (its schema version).
+    #[error("metadata database has schema version {0}, newer than this nahshot supports")]
+    UnsupportedSchema(i64),
 }
 
 /// Convenience alias using [`CoreError`].
