@@ -550,7 +550,7 @@ mod tests {
         let mut s = session(false);
         drag(&mut s, (-50, 10), (50, 60));
         let r = s.finish(Action::Close);
-        assert_eq!(r.image.map(|i| i.dimensions()), Some((100, 50)));
+        assert_eq!(r.image.map(|i| i.dimensions()), Some((101, 51))); // both ends included
     }
 
     #[test]
@@ -624,7 +624,7 @@ mod tests {
         assert_eq!(s.sel.rect().map(|r| r.x), Some(-90));
         assert_eq!(shape_on_desktop(&s), before);
         let img = s.finish(Action::Close).image.expect("image");
-        assert_eq!(img.dimensions(), (220, 60)); // rows above the desktop are dropped
+        assert_eq!(img.dimensions(), (221, 61)); // rows above the desktop are dropped
     }
 
     #[test]

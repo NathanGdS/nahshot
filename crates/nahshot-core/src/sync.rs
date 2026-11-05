@@ -1,13 +1,15 @@
 //! Reconciles the metadata store with what is actually on disk.
 
+use std::fs;
+use std::io;
 use std::path::Path;
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local, NaiveDateTime};
 use walkdir::WalkDir;
 
-use crate::library::Library;
-use crate::naming::parse_captured_at;
+use crate::library::{move_file, Library};
+use crate::naming::{month_dir, parse_captured_at};
 use crate::Result;
 
 /// Deepest level scanned: `root/month/file` and `root/Álbuns/name/file`.
@@ -25,27 +27,69 @@ pub struct SyncReport {
 impl Library {
     /// Brings the store in line with the folder: forgets vanished files, adopts new PNGs.
     ///
-    /// Rows whose file still exists are never touched, even outside the current root.
+    /// A row is only forgotten when its folder is reachable but the file is gone: while
+    /// the root (or, outside it, the print's own folder) is missing, e.g. on an unplugged
+    /// drive, its rows and their tags are kept. Runs as one transaction.
     pub fn sync(&self) -> Result<SyncReport> {
-        let mut report = SyncReport::default();
-        for row in self.db.all()? {
-            if !row.path.exists() {
-                self.db.remove(row.id)?;
-                report.removed += 1;
+        let root_reachable = self.root.is_dir();
+        self.db.transaction(|db| {
+            let mut report = SyncReport::default();
+            for (id, path) in db.all_paths()? {
+                if !path.exists() && self.gone_for_good(&path, root_reachable) {
+                    db.remove(id)?;
+                    report.removed += 1;
+                }
             }
-        }
-        let known = self.db.all()?.len();
-        for entry in WalkDir::new(&self.root).max_depth(MAX_DEPTH) {
-            // Unreadable entries are skipped; the next sync retries them.
-            let Ok(entry) = entry else { continue };
-            if !entry.file_type().is_file() || !is_png(entry.path()) {
+            let known = db.count()?;
+            for entry in WalkDir::new(&self.root).max_depth(MAX_DEPTH) {
+                // Unreadable entries are skipped; the next sync retries them.
+                let Ok(entry) = entry else { continue };
+                if entry.file_type().is_file() && is_png(entry.path()) {
+                    db.insert(entry.path(), captured_at(entry.path()))?;
+                }
+            }
+            report.added = db.count()? - known;
+            Ok(report)
+        })
+    }
+
+    /// Moves every PNG directly inside `dir` into its month folder (never overwriting)
+    /// and registers it; returns how many were adopted. A missing `dir` adopts nothing.
+    ///
+    /// Used for captures that were kept aside when the prints folder refused them.
+    pub fn adopt(&self, dir: &Path) -> Result<usize> {
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
+            Err(e) => return Err(e.into()),
+        };
+        let mut adopted = 0;
+        for entry in entries {
+            let path = entry?.path();
+            if !path.is_file() || !is_png(&path) {
                 continue;
             }
-            let at = captured_at(entry.path());
-            self.db.insert(entry.path(), at)?;
+            let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            let at = captured_at(&path);
+            let month = month_dir(&self.root, at);
+            fs::create_dir_all(&month)?;
+            let target = move_file(&path, &month, &name)?;
+            self.db.insert(&target, at)?;
+            adopted += 1;
         }
-        report.added = self.db.all()?.len() - known;
-        Ok(report)
+        Ok(adopted)
+    }
+
+    /// Whether a missing file at `path` was really removed, rather than living on a
+    /// folder or drive that is unreachable right now.
+    fn gone_for_good(&self, path: &Path, root_reachable: bool) -> bool {
+        if path.starts_with(&self.root) {
+            root_reachable
+        } else {
+            path.parent().is_some_and(Path::is_dir)
+        }
     }
 }
 

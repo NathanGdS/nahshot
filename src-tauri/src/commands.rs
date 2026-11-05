@@ -10,6 +10,7 @@ use nahshot_core::model::{Filter, Print, PrintId, Query, SortOrder};
 use nahshot_core::ThumbCache;
 use serde::Serialize;
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::PoisonError;
 use tauri::{AppHandle, Manager};
@@ -20,6 +21,15 @@ use tauri::{AppHandle, Manager};
 pub struct PrintDto {
     #[serde(flatten)]
     pub print: Print,
+    /// Cached thumbnail file; `None` until [`ensure_thumbs`] has built it.
+    pub thumb: Option<String>,
+}
+
+/// A thumbnail built by [`ensure_thumbs`].
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbDto {
+    pub id: PrintId,
     /// Thumbnail file (the full image if no thumbnail could be made).
     pub thumb: String,
 }
@@ -73,44 +83,76 @@ where
     .await
 }
 
-/// Pairs a print with its thumbnail, falling back to the full image on failure.
+/// Pairs a print with its thumbnail if one is already cached; never builds one.
 fn to_dto(thumbs: &ThumbCache, print: Print) -> PrintDto {
-    let thumb = thumbs.get_or_create(&print.path).unwrap_or_else(|e| {
-        warn!("thumbnail for {}: {e}", print.path.display());
-        print.path.clone()
-    });
     PrintDto {
-        thumb: thumb.to_string_lossy().into_owned(),
+        thumb: thumbs
+            .cached(&print.path)
+            .map(|t| t.to_string_lossy().into_owned()),
         print,
     }
 }
 
-/// Builds thumbnails for `prints` on every core, keeping their order.
-fn to_dtos(thumbs: &ThumbCache, prints: Vec<Print>) -> Vec<PrintDto> {
+/// Builds the thumbnail of `path`, falling back to the full image on failure.
+fn build_thumb(thumbs: &ThumbCache, path: &Path) -> PathBuf {
+    thumbs.get_or_create(path).unwrap_or_else(|e| {
+        warn!("thumbnail for {}: {e}", path.display());
+        path.to_path_buf()
+    })
+}
+
+/// Maps `items` with `f` on every core, keeping their order.
+fn par_map<T: Send, U: Send>(items: Vec<T>, f: impl Fn(T) -> U + Sync) -> Vec<U> {
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let chunk = prints.len().div_ceil(workers).max(1);
-    let mut prints = prints.into_iter();
+    let chunk = items.len().div_ceil(workers).max(1);
+    let mut items = items.into_iter();
     let chunks = std::iter::from_fn(|| {
-        let c: Vec<Print> = prints.by_ref().take(chunk).collect();
+        let c: Vec<T> = items.by_ref().take(chunk).collect();
         (!c.is_empty()).then_some(c)
     });
+    let f = &f;
     std::thread::scope(|s| {
         let handles: Vec<_> = chunks
-            .map(|c| s.spawn(move || c.into_iter().map(|p| to_dto(thumbs, p)).collect::<Vec<_>>()))
+            .map(|c| s.spawn(move || c.into_iter().map(f).collect::<Vec<_>>()))
             .collect();
         handles
             .into_iter()
-            .flat_map(|h| h.join().expect("thumbnail worker panicked"))
+            .flat_map(|h| h.join().expect("worker panicked"))
             .collect()
     })
 }
 
-/// Runs a gallery query. The library lock is released before thumbnails are made.
+/// Runs a gallery query. Returns at once: only thumbnails already cached are
+/// included, the gallery asks for the rest with [`ensure_thumbs`].
 #[tauri::command]
 pub async fn list_prints(app: AppHandle, query: Query) -> CmdResult<Vec<PrintDto>> {
     blocking(app, move |_, state| {
         let prints = with_lib(state, |lib| lib.query(&query))?;
-        Ok(to_dtos(&state.thumbs, prints))
+        Ok(prints
+            .into_iter()
+            .map(|p| to_dto(&state.thumbs, p))
+            .collect())
+    })
+    .await
+}
+
+/// Builds (or finds) the thumbnails of `ids` on every core. Unknown ids are skipped;
+/// the library lock is only held to look the paths up.
+#[tauri::command]
+pub async fn ensure_thumbs(app: AppHandle, ids: Vec<PrintId>) -> CmdResult<Vec<ThumbDto>> {
+    blocking(app, move |_, state| {
+        let found = with_lib(state, |lib| {
+            Ok(ids
+                .iter()
+                .filter_map(|&id| lib.get(id).ok().map(|p| (id, p.path)))
+                .collect::<Vec<_>>())
+        })?;
+        Ok(par_map(found, |(id, path)| ThumbDto {
+            id,
+            thumb: build_thumb(&state.thumbs, &path)
+                .to_string_lossy()
+                .into_owned(),
+        }))
     })
     .await
 }
@@ -242,7 +284,6 @@ pub async fn open_settings(app: AppHandle) {
 mod tests {
     use super::*;
     use chrono::NaiveDate;
-    use std::path::PathBuf;
 
     #[test]
     fn query_deserializes_from_ui_shape() {
@@ -282,12 +323,19 @@ mod tests {
         };
         let dto = PrintDto {
             print,
-            thumb: r"C:\t\1.jpg".into(),
+            thumb: Some(r"C:\t\1.jpg".into()),
         };
         let v = serde_json::to_value(&dto).unwrap();
         assert_eq!(v["id"], 7);
         assert_eq!(v["capturedAt"], "2026-11-04T09:00:00");
         assert_eq!(v["fileName"], "a.png");
         assert_eq!(v["thumb"], r"C:\t\1.jpg");
+    }
+
+    #[test]
+    fn par_map_keeps_order() {
+        let out = par_map((0..100).collect(), |n: i32| n * 2);
+        assert_eq!(out, (0..100).map(|n| n * 2).collect::<Vec<_>>());
+        assert!(par_map(Vec::<i32>::new(), |n| n).is_empty());
     }
 }

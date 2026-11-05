@@ -1,12 +1,14 @@
 //! Shared state managed by Tauri for the whole app lifetime.
 
-use crate::capture_flow::LIBRARY_CHANGED;
+use crate::capture_flow::{adopt_unsaved, LIBRARY_CHANGED};
 use crate::settings::{commit, revert_side_effects, Settings};
-use log::{error, info};
+use crate::start_watcher;
+use log::{error, info, warn};
 use nahshot_capture::overlay::OverlayHandle;
 use nahshot_core::library::Library;
 use nahshot_core::watch::LibraryWatcher;
 use nahshot_core::ThumbCache;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 use tauri::{AppHandle, Emitter, Manager};
@@ -49,23 +51,74 @@ impl AppState {
     }
 }
 
-/// Reconciles the library with its folder and tells open windows about it.
+/// Reconciles the library with its folder (first bringing back captures kept in
+/// `unsaved\`), drops thumbnails nobody uses and tells open windows about it.
 /// Does nothing if the state is not managed yet.
 pub fn resync(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let report = state
-        .lib
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .sync();
-    match report {
-        Ok(r) => {
+    let synced = {
+        let lib = state.lib.lock().unwrap_or_else(PoisonError::into_inner);
+        adopt_unsaved(app, &lib);
+        lib.sync().and_then(|r| Ok((r, lib.paths()?)))
+    };
+    match synced {
+        Ok((r, paths)) => {
             info!("library sync: +{} -{}", r.added, r.removed);
+            prune_thumbs(&state.thumbs, &paths);
             emit_library_changed(app);
         }
         Err(e) => error!("library sync failed: {e}"),
+    }
+}
+
+/// Deletes cached thumbnails that belong to no registered print. Thumbnails of
+/// prints that are unreachable right now go too; they are rebuilt when needed.
+fn prune_thumbs(thumbs: &ThumbCache, prints: &[PathBuf]) {
+    let keep: HashSet<PathBuf> = prints
+        .iter()
+        .filter_map(|p| thumbs.path_for(p).ok())
+        .collect();
+    match thumbs.prune(&keep) {
+        Ok(0) => {}
+        Ok(n) => info!("{n} stale thumbnail(s) removed"),
+        Err(e) => warn!("pruning thumbnails: {e}"),
+    }
+}
+
+/// Spec 6.3: opening the gallery rescans the folder, restarting the folder watch
+/// first if it is not running. Works on a short-lived thread.
+pub fn gallery_opened(app: &AppHandle) {
+    let app = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("nahshot-gallery-scan".into())
+        .spawn(move || {
+            ensure_watcher(&app);
+            resync(&app);
+        });
+    if let Err(e) = spawned {
+        error!("gallery scan not started: {e}");
+    }
+}
+
+/// Starts watching the prints folder if no watch is running.
+fn ensure_watcher(app: &AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let mut watcher = state.watcher.lock().unwrap_or_else(PoisonError::into_inner);
+    if watcher.is_none() {
+        let root = state
+            .lib
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .root()
+            .to_path_buf();
+        *watcher = start_watcher(app, &root);
+        if watcher.is_some() {
+            info!("watching {} again", root.display());
+        }
     }
 }
 

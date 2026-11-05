@@ -5,6 +5,8 @@ use crate::geom::{PxPoint, PxRect};
 use crate::render::Desktop;
 use std::num::NonZeroU32;
 use std::rc::Rc;
+use windows_sys::Win32::Foundation::POINT;
+use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::error::OsError;
 use winit::event_loop::{ActiveEventLoop, OwnedDisplayHandle};
@@ -131,6 +133,16 @@ impl MonitorWindow {
         self.surface = None;
         self.background = Vec::new();
     }
+}
+
+/// The pointer position in virtual-desktop physical pixels, if Windows reports one.
+///
+/// The overlay thread is per-monitor DPI aware, so screen coordinates are physical.
+pub(crate) fn cursor_pos() -> Option<PxPoint> {
+    let mut p = POINT { x: 0, y: 0 };
+    // SAFETY: `p` is a valid, writable POINT for the duration of the call.
+    let ok = unsafe { GetCursorPos(&mut p) } != 0;
+    ok.then_some(PxPoint { x: p.x, y: p.y })
 }
 
 fn non_zero(n: u32) -> NonZeroU32 {

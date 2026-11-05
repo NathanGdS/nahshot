@@ -31,10 +31,12 @@ fn main() {
         }
     });
     let intercept_print_screen = std::env::args().any(|a| a == "--intercept");
-    overlay.set_hotkeys(HotkeyConfig {
+    if let Err(e) = overlay.set_hotkeys(HotkeyConfig {
         intercept_print_screen,
         alt: Some("Ctrl+Shift+S".into()),
-    });
+    }) {
+        eprintln!("hotkeys: {e}");
+    }
     println!(
         "Press Enter or Ctrl+Shift+S{} to capture; close stdin (Ctrl+Z, Enter) to quit.",
         if intercept_print_screen {

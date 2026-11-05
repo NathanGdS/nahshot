@@ -15,13 +15,16 @@ use crate::geom::PxRect;
 use crate::grab::grab_all;
 use crate::hotkey::{HotkeyConfig, Hotkeys};
 use crate::render::compose;
+use crate::CaptureError;
 use chrono::{Local, NaiveDateTime};
 use image::RgbaImage;
 use log::{error, info, warn};
 use session::{Key, Monitor, Outcome, Session};
+use std::any::Any;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
-use std::time::Instant;
+use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
+use std::time::{Duration, Instant};
 use window::{Context, MonitorWindow};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -53,8 +56,12 @@ pub struct CaptureResult {
 #[derive(Debug)]
 pub(crate) enum UserEvent {
     Capture,
-    SetHotkeys(HotkeyConfig),
+    /// New triggers, and where to report whether they could be installed.
+    SetHotkeys(HotkeyConfig, SyncSender<Result<(), CaptureError>>),
 }
+
+/// How long [`OverlayHandle::set_hotkeys`] waits for the overlay thread's answer.
+const HOTKEY_REPLY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Cloneable, `Send` handle to the overlay thread.
 #[derive(Clone)]
@@ -70,10 +77,22 @@ impl OverlayHandle {
         }
     }
 
-    /// Replaces the keys that open the overlay (none until the first call).
-    pub fn set_hotkeys(&self, cfg: HotkeyConfig) {
-        if self.proxy.send_event(UserEvent::SetHotkeys(cfg)).is_err() {
-            error!("overlay thread is gone; hotkey change dropped");
+    /// Replaces the keys that open the overlay (none until the first call) and waits
+    /// for the outcome. If the alternative hotkey cannot be registered, the previous
+    /// one stays active and the error is returned.
+    pub fn set_hotkeys(&self, cfg: HotkeyConfig) -> Result<(), CaptureError> {
+        let (tx, rx) = sync_channel(1);
+        self.proxy
+            .send_event(UserEvent::SetHotkeys(cfg, tx))
+            .map_err(|_| CaptureError::Hotkey("overlay thread is gone".into()))?;
+        match rx.recv_timeout(HOTKEY_REPLY_TIMEOUT) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => Err(CaptureError::Hotkey(
+                "overlay thread did not answer in time".into(),
+            )),
+            Err(RecvTimeoutError::Disconnected) => Err(CaptureError::Hotkey(
+                "overlay thread dropped the request".into(),
+            )),
         }
     }
 }
@@ -186,13 +205,18 @@ impl Overlay {
                 Err(e) => return error!("softbuffer context: {e}"),
             },
         };
-        let session = Session::new(desktop, monitors, self.font.clone(), captured_at);
+        let mut session = Session::new(desktop, monitors, self.font.clone(), captured_at);
+        // A click before the first mouse move must still start a selection.
+        if let Some(p) = window::cursor_pos() {
+            session.moved(p);
+        }
         let mut shown = 0;
         for w in &mut self.windows {
             if let Err(e) = w.prepare(context, session.desktop()) {
                 error!("overlay surface: {e}");
                 continue;
             }
+            w.window().set_cursor(session.cursor_icon());
             w.show();
             match w.present(&session.scene()) {
                 Ok(()) => shown += 1,
@@ -245,6 +269,12 @@ impl Overlay {
         let Some(session) = self.session.take() else {
             return;
         };
+        self.close_windows();
+        deliver(&*self.on_result, session.finish(action));
+    }
+
+    /// Hides every window and frees the capture's pixel buffers.
+    fn close_windows(&mut self) {
         for w in &mut self.windows {
             w.release();
         }
@@ -254,69 +284,22 @@ impl Overlay {
                 .iter()
                 .for_each(|w| w.window().set_ime_allowed(false));
         }
-        deliver(&*self.on_result, session.finish(action));
     }
-}
 
-/// Hands `result` to the caller's callback. A panic there is logged instead of
-/// unwinding, since it would kill the overlay thread and with it every future capture.
-fn deliver(on_result: &dyn Fn(CaptureResult), result: CaptureResult) {
-    if let Err(panic) = catch_unwind(AssertUnwindSafe(|| on_result(result))) {
-        let msg = panic
-            .downcast_ref::<&str>()
-            .map(|s| s.to_string())
-            .or_else(|| panic.downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "non-string panic payload".into());
-        error!("capture result handler panicked: {msg}");
-    }
-}
-
-/// Maps a key press to an overlay command.
-fn decode_key(event: &KeyEvent, modifiers: ModifiersState) -> Option<Key> {
-    if event.state != ElementState::Pressed {
-        return None;
-    }
-    match event.logical_key {
-        WinitKey::Named(NamedKey::Escape) => return Some(Key::Escape),
-        WinitKey::Named(NamedKey::Enter) => return Some(Key::Enter),
-        WinitKey::Named(NamedKey::Backspace) => return Some(Key::Backspace),
-        _ => {}
-    }
-    // AltGr arrives as Ctrl+Alt on Windows: treat it as typing, not a shortcut.
-    if modifiers.control_key() && !modifiers.alt_key() {
-        let WinitKey::Character(c) = event.key_without_modifiers() else {
-            return None;
-        };
-        return match c.to_lowercase().as_str() {
-            "c" => Some(Key::Copy),
-            "s" => Some(Key::SaveAs),
-            "z" => Some(Key::Undo),
-            _ => None,
-        };
-    }
-    let text = event.text.as_ref()?;
-    (!text.is_empty() && !text.chars().any(char::is_control)).then(|| Key::Text(text.to_string()))
-}
-
-impl ApplicationHandler<UserEvent> for Overlay {
-    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
-
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
-        match event {
-            UserEvent::Capture => self.capture(event_loop),
-            UserEvent::SetHotkeys(cfg) => self.hotkeys.apply(&cfg),
+    /// Runs `f`; a panic inside it is logged and aborts the open capture instead of
+    /// unwinding, which would kill the overlay thread and every future capture.
+    fn guarded(&mut self, what: &str, f: impl FnOnce(&mut Self)) {
+        if let Err(panic) = catch_unwind(AssertUnwindSafe(|| f(self))) {
+            error!(
+                "overlay {what} handler panicked, capture aborted: {}",
+                panic_message(&*panic)
+            );
+            self.session = None;
+            self.close_windows();
         }
     }
 
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // The hotkey's hidden window lives on this thread, so its WM_HOTKEY was just
-        // dispatched by this loop; the event sits in global-hotkey's channel.
-        if self.hotkeys.poll() {
-            self.capture(event_loop);
-        }
-    }
-
-    fn window_event(&mut self, _event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+    fn on_window_event(&mut self, id: WindowId, event: WindowEvent) {
         let Some(idx) = self.windows.iter().position(|w| w.id() == id) else {
             return;
         };
@@ -371,6 +354,79 @@ impl ApplicationHandler<UserEvent> for Overlay {
     }
 }
 
+/// Hands `result` to the caller's callback. A panic there is logged instead of
+/// unwinding, since it would kill the overlay thread and with it every future capture.
+fn deliver(on_result: &dyn Fn(CaptureResult), result: CaptureResult) {
+    if let Err(panic) = catch_unwind(AssertUnwindSafe(|| on_result(result))) {
+        error!(
+            "capture result handler panicked: {}",
+            panic_message(&*panic)
+        );
+    }
+}
+
+/// The text of a panic payload, when it has one.
+fn panic_message(panic: &(dyn Any + Send)) -> String {
+    panic
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "non-string panic payload".into())
+}
+
+/// Maps a key press to an overlay command.
+fn decode_key(event: &KeyEvent, modifiers: ModifiersState) -> Option<Key> {
+    if event.state != ElementState::Pressed {
+        return None;
+    }
+    match event.logical_key {
+        WinitKey::Named(NamedKey::Escape) => return Some(Key::Escape),
+        WinitKey::Named(NamedKey::Enter) => return Some(Key::Enter),
+        WinitKey::Named(NamedKey::Backspace) => return Some(Key::Backspace),
+        _ => {}
+    }
+    // AltGr arrives as Ctrl+Alt on Windows: treat it as typing, not a shortcut.
+    if modifiers.control_key() && !modifiers.alt_key() {
+        let WinitKey::Character(c) = event.key_without_modifiers() else {
+            return None;
+        };
+        return match c.to_lowercase().as_str() {
+            "c" => Some(Key::Copy),
+            "s" => Some(Key::SaveAs),
+            "z" => Some(Key::Undo),
+            _ => None,
+        };
+    }
+    let text = event.text.as_ref()?;
+    (!text.is_empty() && !text.chars().any(char::is_control)).then(|| Key::Text(text.to_string()))
+}
+
+impl ApplicationHandler<UserEvent> for Overlay {
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        self.guarded("request", |o| match event {
+            UserEvent::Capture => o.capture(event_loop),
+            UserEvent::SetHotkeys(cfg, reply) => {
+                // The caller may have stopped waiting; nothing to do then.
+                let _ = reply.send(o.hotkeys.apply(&cfg));
+            }
+        });
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // The hotkey's hidden window lives on this thread, so its WM_HOTKEY was just
+        // dispatched by this loop; the event sits in global-hotkey's channel.
+        if self.hotkeys.poll() {
+            self.guarded("hotkey", |o| o.capture(event_loop));
+        }
+    }
+
+    fn window_event(&mut self, _event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        self.guarded("input", |o| o.on_window_event(id, event));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,5 +450,31 @@ mod tests {
         deliver(&handler, result());
         deliver(&handler, result());
         assert_eq!(calls.get(), 2);
+    }
+
+    fn session() -> Session {
+        let area = PxRect {
+            x: 0,
+            y: 0,
+            w: 4,
+            h: 4,
+        };
+        let desktop = crate::render::Desktop {
+            origin: crate::geom::PxPoint { x: 0, y: 0 },
+            image: RgbaImage::new(4, 4),
+        };
+        let monitors = vec![Monitor { area, scale: 1.0 }];
+        Session::new(desktop, monitors, None, NaiveDateTime::default())
+    }
+
+    #[test]
+    fn panic_in_a_handler_aborts_the_capture_and_keeps_the_overlay_alive() {
+        let mut overlay = Overlay::new(Box::new(|_| {}), Hotkeys::new(|| {}));
+        overlay.session = Some(session());
+        overlay.guarded("test", |_| panic!("paint bug"));
+        assert!(overlay.session.is_none());
+        let mut ran = false;
+        overlay.guarded("test", |_| ran = true);
+        assert!(ran);
     }
 }

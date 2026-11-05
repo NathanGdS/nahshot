@@ -1,6 +1,6 @@
 //! SQLite-backed metadata store.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::NaiveDateTime;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -99,6 +99,40 @@ impl Db {
         )?;
         let rows = stmt.query_map([], |r| self.row(r))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Lists every print's id and path, without tags.
+    pub fn all_paths(&self) -> Result<Vec<(PrintId, PathBuf)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, path FROM prints ORDER BY id")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((PrintId(r.get(0)?), PathBuf::from(r.get::<_, String>(1)?)))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Number of registered prints.
+    pub fn count(&self) -> Result<usize> {
+        let n: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM prints", [], |r| r.get(0))?;
+        Ok(n as usize)
+    }
+
+    /// Runs `f` inside one transaction: committed if it succeeds, rolled back otherwise.
+    pub fn transaction<T>(&self, f: impl FnOnce(&Db) -> Result<T>) -> Result<T> {
+        self.conn.execute_batch("BEGIN")?;
+        match f(self) {
+            Ok(out) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(out)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
     }
 
     /// Points a print at a new file path.
@@ -249,6 +283,33 @@ mod tests {
         let all = db.all().unwrap();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].captured_at, t0());
+    }
+
+    #[test]
+    fn all_paths_and_count() {
+        let db = Db::open_in_memory().unwrap();
+        let a = db.insert(Path::new("a.png"), t0()).unwrap();
+        let b = db.insert(Path::new("b.png"), t0()).unwrap();
+        db.add_tag(a, "x").unwrap();
+        assert_eq!(db.count().unwrap(), 2);
+        assert_eq!(
+            db.all_paths().unwrap(),
+            vec![(a, PathBuf::from("a.png")), (b, PathBuf::from("b.png"))]
+        );
+    }
+
+    #[test]
+    fn transaction_commits_or_rolls_back() {
+        let db = Db::open_in_memory().unwrap();
+        db.transaction(|db| db.insert(Path::new("kept.png"), t0()))
+            .unwrap();
+        let failed: Result<()> = db.transaction(|db| {
+            db.insert(Path::new("dropped.png"), t0())?;
+            Err(CoreError::InvalidName("boom".into()))
+        });
+        assert!(failed.is_err());
+        assert_eq!(db.count().unwrap(), 1);
+        assert!(db.find_by_path(Path::new("kept.png")).unwrap().is_some());
     }
 
     #[test]

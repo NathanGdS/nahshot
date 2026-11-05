@@ -145,3 +145,77 @@ fn watcher_fires_on_new_file() {
     std::fs::write(lib.root().join("new.png"), png()).unwrap();
     rx.recv_timeout(Duration::from_secs(5)).unwrap();
 }
+
+fn t_at() -> chrono::NaiveDateTime {
+    chrono::NaiveDate::from_ymd_opt(2026, 11, 4)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap()
+}
+
+#[test]
+fn sync_keeps_rows_while_root_is_unreachable() {
+    let (d, lib) = lib();
+    let p = lib.import_capture(&png(), t_at()).unwrap();
+    lib.add_tag(p.id, "keep").unwrap();
+    lib.set_favorite(p.id, true).unwrap();
+    // The drive is unplugged: the whole root vanishes for a while.
+    let away = d.path().join("away");
+    std::fs::rename(lib.root(), &away).unwrap();
+    assert_eq!(lib.sync().unwrap(), SyncReport::default());
+    std::fs::rename(&away, lib.root()).unwrap();
+    assert_eq!(lib.sync().unwrap(), SyncReport::default());
+    let all = lib.query(&Query::default()).unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].id, p.id);
+    assert_eq!(all[0].tags, vec!["keep".to_owned()]);
+    assert!(all[0].favorite);
+}
+
+#[test]
+fn sync_removes_row_under_root_when_its_month_folder_was_deleted() {
+    let (_d, lib) = lib();
+    let p = lib.import_capture(&png(), t_at()).unwrap();
+    std::fs::remove_dir_all(p.path.parent().unwrap()).unwrap();
+    assert_eq!(lib.sync().unwrap().removed, 1);
+}
+
+#[test]
+fn sync_keeps_rows_outside_root_whose_folder_is_unreachable() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db.sqlite");
+    let a = Library::open(dir.path().join("rootA"), &db).unwrap();
+    let p = a.import_capture(&png(), t_at()).unwrap();
+    drop(a);
+    std::fs::rename(dir.path().join("rootA"), dir.path().join("away")).unwrap();
+    let b = Library::open(dir.path().join("rootB"), &db).unwrap();
+    std::fs::create_dir_all(b.root()).unwrap();
+    assert_eq!(b.sync().unwrap(), SyncReport::default());
+    assert_eq!(b.query(&Query::default()).unwrap()[0].id, p.id);
+}
+
+#[test]
+fn sync_removes_rows_outside_root_when_only_the_file_is_gone() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db.sqlite");
+    let a = Library::open(dir.path().join("rootA"), &db).unwrap();
+    let p = a.import_capture(&png(), t_at()).unwrap();
+    drop(a);
+    std::fs::remove_file(&p.path).unwrap();
+    let b = Library::open(dir.path().join("rootB"), &db).unwrap();
+    assert_eq!(b.sync().unwrap().removed, 1);
+    assert!(b.query(&Query::default()).unwrap().is_empty());
+}
+
+#[test]
+fn sync_registers_many_files_in_one_go() {
+    let (_d, lib) = lib();
+    let m = lib.root().join("2026-10");
+    std::fs::create_dir_all(&m).unwrap();
+    let bytes = png();
+    for i in 0..200 {
+        std::fs::write(m.join(format!("p{i}.png")), &bytes).unwrap();
+    }
+    assert_eq!(lib.sync().unwrap().added, 200);
+    assert_eq!(lib.paths().unwrap().len(), 200);
+}
