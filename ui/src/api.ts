@@ -111,5 +111,6 @@ export function friendlyError(err: unknown): string {
   if (msg.startsWith("album not found")) return "Esse álbum não existe mais.";
   if (msg.startsWith("print not found")) return "Esse print não existe mais.";
   if (msg.includes("invalid accelerator")) return "Essa combinação de teclas não pode ser usada.";
+  if (msg.startsWith("hotkey error")) return "Não foi possível registrar esse atalho; talvez outro programa já o use.";
   return msg;
 }

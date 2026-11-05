@@ -124,8 +124,16 @@ pub fn apply_print_screen_default(
     overlay: &OverlayHandle,
 ) -> io::Result<()> {
     apply_print_screen_default_at(KEYBOARD_KEY, enable, settings, &|cfg| {
-        overlay.set_hotkeys(cfg)
+        install_hotkeys(overlay, cfg)
     })
+}
+
+/// Installs `cfg` on the overlay. A failure is only logged: the triggers that could
+/// not be installed stay off (or, for the alternative hotkey, keep the previous key).
+pub fn install_hotkeys(overlay: &OverlayHandle, cfg: HotkeyConfig) {
+    if let Err(e) = overlay.set_hotkeys(cfg) {
+        warn!("hotkeys: {e}");
+    }
 }
 
 /// [`apply_print_screen_default`] against `HKCU\<key_path>`. Enabling remembers the
@@ -175,7 +183,9 @@ pub fn commit<T>(
 /// Undoes the side effects of moving from `before` to `after` that were never
 /// saved: the Print Screen registry value and the installed hotkeys.
 pub fn revert_side_effects(before: &Settings, after: &Settings, overlay: &OverlayHandle) {
-    revert_side_effects_at(KEYBOARD_KEY, before, after, &|cfg| overlay.set_hotkeys(cfg));
+    revert_side_effects_at(KEYBOARD_KEY, before, after, &|cfg| {
+        install_hotkeys(overlay, cfg)
+    });
 }
 
 /// [`revert_side_effects`] against `HKCU\<key_path>`.

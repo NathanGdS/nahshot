@@ -40,50 +40,79 @@ impl Hotkeys {
         }
     }
 
-    /// Installs, replaces or removes triggers to match `cfg`. Failures are logged and
-    /// leave that trigger off; callers validate `cfg.alt` with [`parse_accelerator`].
-    pub(crate) fn apply(&mut self, cfg: &HotkeyConfig) {
+    /// Installs, replaces or removes triggers to match `cfg`.
+    ///
+    /// A trigger that cannot be installed is reported; an alternative hotkey that fails
+    /// to register (or does not parse) leaves the previous one in place.
+    pub(crate) fn apply(&mut self, cfg: &HotkeyConfig) -> Result<(), CaptureError> {
+        let mut result = Ok(());
         if cfg.intercept_print_screen != self.hook.is_some() {
             self.hook = None;
             if cfg.intercept_print_screen {
                 match PrintScreenHook::install(Arc::clone(&self.on_print_screen)) {
                     Ok(hook) => self.hook = Some(hook),
-                    Err(e) => error!("print screen hook not installed: {e}"),
+                    Err(e) => {
+                        error!("print screen hook not installed: {e}");
+                        result = Err(CaptureError::Hotkey(format!("print screen hook: {e}")));
+                    }
                 }
             }
         }
-        let wanted = cfg.alt.as_deref().and_then(|s| {
-            parse_accelerator(s)
-                .inspect_err(|e| error!("alternative hotkey ignored: {e}"))
-                .ok()
-        });
+        let wanted = match cfg.alt.as_deref().map(parse_accelerator).transpose() {
+            Ok(wanted) => wanted,
+            Err(e) => {
+                error!("alternative hotkey ignored: {e}");
+                result = result.and(Err(e));
+                self.alt
+            }
+        };
         if wanted != self.alt {
-            self.set_alt(wanted);
+            if let Err(e) = self.set_alt(wanted) {
+                error!("{e}");
+                result = result.and(Err(e));
+            }
         }
         info!(
             "hotkeys: print_screen_hook={} alt={:?}",
             self.hook.is_some(),
             self.alt.map(HotKey::into_string)
         );
+        result
     }
 
-    fn set_alt(&mut self, wanted: Option<HotKey>) {
-        if let (Some(old), Some(manager)) = (self.alt.take(), &self.manager) {
+    /// Swaps the alternative hotkey; on failure the previous one is registered again.
+    fn set_alt(&mut self, wanted: Option<HotKey>) -> Result<(), CaptureError> {
+        let old = self.alt.take();
+        if let (Some(old), Some(manager)) = (old, &self.manager) {
             if let Err(e) = manager.unregister(old) {
                 error!("unregistering hotkey {}: {e}", old.into_string());
             }
         }
-        let Some(new) = wanted else { return };
+        let Some(new) = wanted else { return Ok(()) };
         let manager = match &self.manager {
             Some(m) => m,
             None => match GlobalHotKeyManager::new() {
                 Ok(m) => self.manager.insert(m),
-                Err(e) => return error!("global hotkey manager: {e}"),
+                Err(e) => return Err(CaptureError::Hotkey(format!("global hotkey manager: {e}"))),
             },
         };
         match manager.register(new) {
-            Ok(()) => self.alt = Some(new),
-            Err(e) => error!("registering hotkey {}: {e}", new.into_string()),
+            Ok(()) => {
+                self.alt = Some(new);
+                Ok(())
+            }
+            Err(e) => {
+                if let Some(old) = old {
+                    match manager.register(old) {
+                        Ok(()) => self.alt = Some(old),
+                        Err(e) => error!("restoring hotkey {}: {e}", old.into_string()),
+                    }
+                }
+                Err(CaptureError::Hotkey(format!(
+                    "registering {}: {e}",
+                    new.into_string()
+                )))
+            }
         }
     }
 
@@ -183,6 +212,32 @@ mod tests {
             parse_accelerator("Shift+PrintScreen").unwrap(),
             HotKey::new(Some(Modifiers::SHIFT), Code::PrintScreen)
         );
+    }
+
+    #[test]
+    fn failed_registration_is_reported_and_keeps_the_previous_hotkey() {
+        let cfg = |alt: &str| HotkeyConfig {
+            intercept_print_screen: false,
+            alt: Some(alt.into()),
+        };
+        // Obscure combinations, so the test does not collide with real shortcuts.
+        let (first, taken) = ("Ctrl+Alt+Shift+Win+F21", "Ctrl+Alt+Shift+Win+F22");
+        let mut other = Hotkeys::new(|| {});
+        other
+            .apply(&cfg(taken))
+            .expect("register the blocking hotkey");
+
+        let mut hotkeys = Hotkeys::new(|| {});
+        hotkeys
+            .apply(&cfg(first))
+            .expect("register the first hotkey");
+        assert!(matches!(
+            hotkeys.apply(&cfg(taken)),
+            Err(CaptureError::Hotkey(_))
+        ));
+        assert_eq!(hotkeys.alt, Some(parse_accelerator(first).unwrap()));
+        assert!(hotkeys.apply(&cfg("Banana")).is_err());
+        assert_eq!(hotkeys.alt, Some(parse_accelerator(first).unwrap()));
     }
 
     #[test]

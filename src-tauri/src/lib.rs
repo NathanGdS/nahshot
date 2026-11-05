@@ -98,7 +98,7 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // rather than statically: thumbnails in the grid, full images in the viewer.
     asset_scope::allow_library(app, &lib, &thumbs_dir)?;
     let overlay = spawn_overlay(capture_flow::dispatcher(app.clone()));
-    overlay.set_hotkeys(settings.hotkey_config());
+    settings::install_hotkeys(&overlay, settings.hotkey_config());
     let prints_dir = settings.prints_dir.clone();
     let first_run_done = settings.first_run_done;
     app.manage(AppState {

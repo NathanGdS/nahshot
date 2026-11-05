@@ -65,6 +65,9 @@ pub async fn set_default_print_screen(app: AppHandle, enabled: bool) -> CmdResul
 }
 
 /// Validates and installs a new alternative capture hotkey; returns it as stored.
+///
+/// If Windows refuses the key (e.g. another app owns it), the previous hotkey stays
+/// active, nothing is saved and the error reaches the settings window.
 #[tauri::command]
 pub async fn set_alt_hotkey(app: AppHandle, accelerator: String) -> CmdResult<String> {
     blocking(app, move |app, state| {
@@ -72,7 +75,10 @@ pub async fn set_alt_hotkey(app: AppHandle, accelerator: String) -> CmdResult<St
         parse_accelerator(&accelerator).map_err(|e| e.to_string())?;
         state.update_settings(app, |s| {
             s.alt_hotkey = accelerator.clone();
-            state.overlay.set_hotkeys(s.hotkey_config());
+            state
+                .overlay
+                .set_hotkeys(s.hotkey_config())
+                .map_err(|e| e.to_string())?;
             Ok(accelerator)
         })
     })
