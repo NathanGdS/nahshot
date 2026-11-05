@@ -13,6 +13,13 @@ export interface Print {
   favorite: boolean;
   album: string | null;
   tags: string[];
+  /** Cached thumbnail file; `null` until `ensureThumbs` has built it. */
+  thumb: string | null;
+}
+
+/** A thumbnail built by `ensure_thumbs`. */
+export interface Thumb {
+  id: number;
   thumb: string;
 }
 
@@ -39,6 +46,7 @@ export interface Sidebar {
 }
 
 export const listPrints = (query: Query) => invoke<Print[]>("list_prints", { query });
+export const ensureThumbs = (ids: number[]) => invoke<Thumb[]>("ensure_thumbs", { ids });
 export const getSidebar = () => invoke<Sidebar>("get_sidebar");
 export const renamePrint = (id: number, stem: string) => invoke<Print>("rename_print", { id, stem });
 export const setFavorite = (id: number, value: boolean) => invoke<void>("set_favorite", { id, value });

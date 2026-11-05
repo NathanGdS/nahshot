@@ -76,6 +76,26 @@ async function reload(): Promise<void> {
   sidebar.update(side);
   renderGrid(groups);
   viewer.refresh();
+  fillThumbs(seq);
+}
+
+/** Thumbnails built per round trip, so the first rows show up quickly. */
+const THUMB_BATCH = 24;
+
+/** Builds the missing thumbnails in display order, swapping each into its tile. Stops when a newer load starts. */
+async function fillThumbs(seq: number): Promise<void> {
+  const missing = state.prints.filter((p) => !p.thumb);
+  for (let i = 0; i < missing.length && seq === loadSeq; i += THUMB_BATCH) {
+    const batch = missing.slice(i, i + THUMB_BATCH);
+    const built = await api.ensureThumbs(batch.map((p) => p.id)).catch(() => []);
+    if (seq !== loadSeq) return;
+    for (const { id, thumb } of built) {
+      const print = batch.find((p) => p.id === id);
+      if (print) print.thumb = thumb;
+      const img = grid.querySelector<HTMLImageElement>(`.tile[data-id="${id}"] img`);
+      if (img) img.src = api.fileSrc(thumb);
+    }
+  }
 }
 
 let changeTimer: number | undefined;
@@ -147,7 +167,8 @@ function tile(p: Print): HTMLElement {
       title: p.fileName,
       "data-id": String(p.id),
     },
-    h("img", { src: api.fileSrc(p.thumb), alt: p.fileName, loading: "lazy", decoding: "async", draggable: "false" }),
+    // Without a cached thumbnail the tile shows its placeholder until `fillThumbs` gets one.
+    h("img", { src: p.thumb ? api.fileSrc(p.thumb) : null, alt: p.fileName, loading: "lazy", decoding: "async", draggable: "false" }),
     h("span", { class: "tile-check", "aria-hidden": "true" }, icon("check")),
     badges,
     h("figcaption", { class: "tile-name" }, p.fileName),

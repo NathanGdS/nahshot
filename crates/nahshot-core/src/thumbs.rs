@@ -19,7 +19,7 @@ const JPEG_QUALITY: u8 = 80;
 /// Makes temporary file names unique within the process.
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// A directory of thumbnails keyed by source path, mtime and size.
+/// A directory of thumbnails keyed by source file name, mtime and size.
 pub struct ThumbCache {
     dir: PathBuf,
 }
@@ -31,9 +31,19 @@ impl ThumbCache {
         Ok(Self { dir })
     }
 
+    /// Where the thumbnail of `source` lives (whether or not it exists yet).
+    pub fn path_for(&self, source: &Path) -> Result<PathBuf> {
+        Ok(self.dir.join(format!("{}.jpg", cache_key(source)?)))
+    }
+
+    /// The thumbnail of `source` if it is already cached and fresh; never generates one.
+    pub fn cached(&self, source: &Path) -> Option<PathBuf> {
+        self.path_for(source).ok().filter(|thumb| thumb.exists())
+    }
+
     /// Returns the thumbnail path for `source`, generating it when missing or stale.
     pub fn get_or_create(&self, source: &Path) -> Result<PathBuf> {
-        let thumb = self.dir.join(format!("{}.jpg", cache_key(source)?));
+        let thumb = self.path_for(source)?;
         if !thumb.exists() {
             let tmp = self.dir.join(format!(
                 "{}.{}.{}.tmp",
@@ -82,12 +92,19 @@ fn write_thumb(source: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Hex hash of the lowercased absolute path, modification time and size.
+/// Hex hash of the lowercased file name, modification time and size.
+///
+/// The folder is left out on purpose: album moves and library relocations keep the
+/// thumbnail, while any change to the content changes mtime or size.
 fn cache_key(source: &Path) -> Result<String> {
     let meta = fs::metadata(source)?;
-    let abs = std::path::absolute(source)?;
     let mut hasher = DefaultHasher::new();
-    abs.to_string_lossy().to_lowercase().hash(&mut hasher);
+    source
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase()
+        .hash(&mut hasher);
     meta.modified()?.hash(&mut hasher);
     meta.len().hash(&mut hasher);
     Ok(format!("{:016x}", hasher.finish()))
@@ -138,6 +155,36 @@ mod tests {
         let second = cache.get_or_create(&src).unwrap();
         assert_ne!(first, second);
         assert_eq!(image::image_dimensions(&second).unwrap(), (320, 240));
+    }
+
+    #[test]
+    fn thumb_is_reused_after_moving_the_file_to_another_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("a.png");
+        write_png(&src, 800, 600);
+        let cache = cache(&dir);
+        let first = cache.get_or_create(&src).unwrap();
+
+        // An album move or a library relocation keeps name, mtime and size.
+        let album = dir.path().join("album");
+        fs::create_dir(&album).unwrap();
+        let moved = album.join("a.png");
+        fs::rename(&src, &moved).unwrap();
+        assert_eq!(cache.cached(&moved), Some(first.clone()));
+        assert_eq!(cache.get_or_create(&moved).unwrap(), first);
+    }
+
+    #[test]
+    fn cached_reports_only_existing_thumbs() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("a.png");
+        write_png(&src, 50, 50);
+        let cache = cache(&dir);
+        assert_eq!(cache.cached(&src), None);
+        let thumb = cache.get_or_create(&src).unwrap();
+        assert_eq!(cache.cached(&src), Some(thumb.clone()));
+        assert_eq!(cache.path_for(&src).unwrap(), thumb);
+        assert_eq!(cache.cached(&dir.path().join("missing.png")), None);
     }
 
     #[test]

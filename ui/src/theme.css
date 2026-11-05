@@ -491,6 +491,10 @@ p {
   height: 100%;
   object-fit: cover;
 }
+/* Thumbnail still being built: the tile background is the placeholder. */
+.tile img:not([src]) {
+  visibility: hidden;
+}
 .tile::after {
   content: "";
   position: absolute;

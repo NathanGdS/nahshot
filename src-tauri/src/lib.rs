@@ -41,6 +41,7 @@ pub fn run() {
         .setup(|app| setup(app.handle()))
         .invoke_handler(tauri::generate_handler![
             commands::list_prints,
+            commands::ensure_thumbs,
             commands::get_sidebar,
             commands::rename_print,
             commands::set_favorite,
