@@ -32,7 +32,11 @@ pub(crate) struct Scene<'a> {
     /// DPI scale of the monitor hosting the selection's chrome (label, handles, toolbar).
     pub scale: f32,
     /// The size label, already laid out.
-    pub label: Option<(String, PxRect)>,
+    pub label: Option<Bubble>,
+    /// What the toolbar button under the pointer does.
+    pub tooltip: Option<Bubble>,
+    /// How to select, shown until there is a selection.
+    pub hint: Option<Bubble>,
     /// Text caret while a text annotation is being typed.
     pub caret: Option<PxRect>,
 }
@@ -80,7 +84,17 @@ fn for_each_row(desktop: &Desktop, area: PxRect, mut f: impl FnMut(usize, &[u8])
 impl Scene<'_> {
     /// Paints the scene over a frame that already holds the veiled background.
     pub fn paint(&self, frame: &mut Frame) {
-        let Some(sel) = self.selection else { return };
+        if let Some(sel) = self.selection {
+            self.paint_selection(frame, sel);
+        }
+        if let Some(font) = self.font {
+            for b in [&self.hint, &self.tooltip].into_iter().flatten() {
+                b.paint(frame, font);
+            }
+        }
+    }
+
+    fn paint_selection(&self, frame: &mut Frame, sel: PxRect) {
         frame.unveil(self.desktop, sel);
         frame.with_pixmap(sel, |pixmap, (dx, dy)| {
             let corner = ((sel.x as f32) + dx, (sel.y as f32) + dy);
@@ -91,22 +105,8 @@ impl Scene<'_> {
         }
         frame.outline(sel, BORDER);
         self.paint_handles(frame, sel);
-        if let (Some((text, rect)), Some(font)) = (&self.label, self.font) {
-            let size = LABEL_SIZE * self.scale;
-            let pad = LABEL_PAD * self.scale;
-            frame.with_pixmap(*rect, |pixmap, (dx, dy)| {
-                let r = to_skia(*rect, dx, dy);
-                pixmap.fill_rect(r, &solid(0, 0, 0, 170), Transform::identity(), None);
-                let at = (r.x() + pad, r.y() + pad / 2.0);
-                draw_text(
-                    pixmap,
-                    at,
-                    text,
-                    crate::annotate::Color(255, 255, 255),
-                    size,
-                    font,
-                );
-            });
+        if let (Some(label), Some(font)) = (&self.label, self.font) {
+            label.paint(frame, font);
         }
         if let Some(bar) = toolbar::bounds(self.toolbar) {
             frame.with_pixmap(bar, |pixmap, offset| {
@@ -147,28 +147,99 @@ impl Scene<'_> {
     }
 }
 
+/// A line of white text on a dark box, in desktop coordinates.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Bubble {
+    pub text: String,
+    pub rect: PxRect,
+    /// DPI scale of the monitor it is shown on.
+    pub scale: f32,
+}
+
+impl Bubble {
+    /// A bubble for `text` with its top-left corner at the origin.
+    fn new(text: String, scale: f32, font: &Font) -> Self {
+        let size = LABEL_SIZE * scale;
+        let pad = LABEL_PAD * scale;
+        let w = (font.text_width(&text, size) + 2.0 * pad).ceil() as u32;
+        let h = (size * 1.4 + pad).ceil() as u32;
+        Bubble {
+            text,
+            rect: PxRect { x: 0, y: 0, w, h },
+            scale,
+        }
+    }
+
+    fn at(mut self, x: i32, y: i32) -> Self {
+        self.rect.x = x;
+        self.rect.y = y;
+        self
+    }
+
+    /// Spacing between a bubble and what it points at, in pixels.
+    fn gap(&self) -> i32 {
+        (LABEL_PAD * self.scale).round() as i32
+    }
+
+    fn paint(&self, frame: &mut Frame, font: &Font) {
+        let size = LABEL_SIZE * self.scale;
+        let pad = LABEL_PAD * self.scale;
+        frame.with_pixmap(self.rect, |pixmap, (dx, dy)| {
+            let r = to_skia(self.rect, dx, dy);
+            pixmap.fill_rect(r, &solid(0, 0, 0, 170), Transform::identity(), None);
+            let at = (r.x() + pad, r.y() + pad / 2.0);
+            let white = crate::annotate::Color(255, 255, 255);
+            draw_text(pixmap, at, &self.text, white, size, font);
+        });
+    }
+}
+
 /// Lays out the `"{w} × {h}"` label above the selection, or inside it at the top edge
 /// of `screen`.
-pub(crate) fn label_layout(
-    sel: PxRect,
-    screen: PxRect,
-    scale: f32,
-    font: &Font,
-) -> (String, PxRect) {
-    let text = format!("{} \u{00D7} {}", sel.w, sel.h);
-    let size = LABEL_SIZE * scale;
-    let pad = LABEL_PAD * scale;
-    let w = (font.text_width(&text, size) + 2.0 * pad).ceil() as u32;
-    let h = (size * 1.4 + pad).ceil() as u32;
-    let gap = pad.round() as i32;
-    let above = sel.y - gap - h as i32;
+pub(crate) fn label_layout(sel: PxRect, screen: PxRect, scale: f32, font: &Font) -> Bubble {
+    let b = Bubble::new(format!("{} \u{00D7} {}", sel.w, sel.h), scale, font);
+    let above = sel.y - b.gap() - b.rect.h as i32;
     let y = if above >= screen.y {
         above
     } else {
-        sel.y + gap
+        sel.y + b.gap()
     };
-    let x = sel.x.max(screen.x).min(screen.right() - w as i32);
-    (text, PxRect { x, y, w, h })
+    let x = sel.x.max(screen.x).min(screen.right() - b.rect.w as i32);
+    b.at(x, y)
+}
+
+/// Lays out `text` centered below `button`, or above it if there is no room on `screen`.
+pub(crate) fn tooltip_layout(
+    text: String,
+    button: PxRect,
+    screen: PxRect,
+    scale: f32,
+    font: &Font,
+) -> Bubble {
+    let b = Bubble::new(text, scale, font);
+    let (w, h) = (b.rect.w as i32, b.rect.h as i32);
+    let gap = 2 * b.gap();
+    let below = button.bottom() + gap;
+    let y = if below + h <= screen.bottom() {
+        below
+    } else {
+        button.y - gap - h
+    };
+    let x = (button.x + button.w as i32 / 2 - w / 2)
+        .min(screen.right() - w)
+        .max(screen.x);
+    b.at(x, y)
+}
+
+/// Shown until something is selected.
+const HINT: &str = "Arraste para selecionar \u{00B7} Duplo-clique ou F: tela inteira";
+
+/// Lays out the selection hint centered near the top of `screen`.
+pub(crate) fn hint_layout(screen: PxRect, scale: f32, font: &Font) -> Bubble {
+    let b = Bubble::new(HINT.to_string(), scale, font);
+    let x = screen.x + (screen.w as i32 - b.rect.w as i32) / 2;
+    let y = screen.y + 4 * b.gap();
+    b.at(x.max(screen.x), y)
 }
 
 fn solid(r: u8, g: u8, b: u8, a: u8) -> Paint<'static> {

@@ -5,7 +5,9 @@ use crate::geom::{PxPoint, PxRect};
 use crate::render::Desktop;
 use std::num::NonZeroU32;
 use std::rc::Rc;
+use std::time::Duration;
 use windows_sys::Win32::Foundation::POINT;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::error::OsError;
@@ -143,6 +145,12 @@ pub(crate) fn cursor_pos() -> Option<PxPoint> {
     // SAFETY: `p` is a valid, writable POINT for the duration of the call.
     let ok = unsafe { GetCursorPos(&mut p) } != 0;
     ok.then_some(PxPoint { x: p.x, y: p.y })
+}
+
+/// The longest pause between the two clicks of a double-click (user setting).
+pub(crate) fn double_click_time() -> Duration {
+    // SAFETY: no arguments; reads a per-user setting.
+    Duration::from_millis(unsafe { GetDoubleClickTime() }.into())
 }
 
 fn non_zero(n: u32) -> NonZeroU32 {

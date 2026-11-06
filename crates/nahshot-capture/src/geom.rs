@@ -125,6 +125,17 @@ impl Selection {
         self.edges = Some(Edges::spanning(p, p));
     }
 
+    /// Replaces the selection with exactly `r`.
+    pub fn set(&mut self, r: PxRect) {
+        self.anchor = None;
+        self.edges = Some(Edges {
+            l: r.x,
+            t: r.y,
+            r: r.right(),
+            b: r.bottom(),
+        });
+    }
+
     /// Extends the initial drag from the `begin` point to `p`.
     pub fn update(&mut self, p: PxPoint) {
         if let Some(a) = self.anchor {

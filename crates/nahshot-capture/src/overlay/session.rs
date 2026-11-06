@@ -3,7 +3,7 @@
 //! Everything here is in virtual-desktop physical pixels and free of winit windows, so
 //! the interaction logic is unit-testable.
 
-use super::paint::{label_layout, Scene};
+use super::paint::{hint_layout, label_layout, tooltip_layout, Bubble, Scene};
 use super::toolbar::{self, ToolbarItem};
 use super::{Action, CaptureResult};
 use crate::annotate::{Annotations, Pt, Shape, Tool, PALETTE, STROKE_WIDTH, TEXT_SIZE};
@@ -12,12 +12,15 @@ use crate::geom::{Handle, PxPoint, PxRect, Selection};
 use crate::render::{crop, flatten, Desktop};
 use chrono::NaiveDateTime;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 use winit::window::CursorIcon;
 
 /// Pointer slack around selection edges, in logical pixels.
 const EDGE_TOLERANCE: f32 = 6.0;
 /// Extra margin painted around the selection (border and handles), in logical pixels.
 const CHROME_MARGIN: f32 = 8.0;
+/// How far apart, in physical pixels, the two clicks of a double-click may be.
+const DOUBLE_CLICK_SLOP: i32 = 4;
 
 /// A captured monitor: bounds and DPI scale.
 #[derive(Debug, Clone, Copy)]
@@ -74,8 +77,14 @@ pub(crate) struct Session {
     /// The topmost annotation is a text box still being typed.
     editing: bool,
     toolbar: Vec<(ToolbarItem, PxRect)>,
-    label: Option<(String, PxRect)>,
+    label: Option<Bubble>,
+    tooltip: Option<Bubble>,
+    hint: Option<Bubble>,
     painted: Option<PxRect>,
+    /// Longest pause between the clicks of a double-click.
+    double_click: Duration,
+    /// When and where the last press that could start a selection happened.
+    last_press: Option<(Instant, PxPoint)>,
 }
 
 impl Session {
@@ -85,6 +94,7 @@ impl Session {
         monitors: Vec<Monitor>,
         font: Option<Rc<Font>>,
         captured_at: NaiveDateTime,
+        double_click: Duration,
     ) -> Self {
         Session {
             desktop,
@@ -100,7 +110,11 @@ impl Session {
             editing: false,
             toolbar: Vec::new(),
             label: None,
+            tooltip: None,
+            hint: None,
             painted: None,
+            double_click,
+            last_press: None,
         }
     }
 
@@ -126,6 +140,8 @@ impl Session {
             font: self.font.as_deref(),
             scale: self.chrome_scale(),
             label: self.label.clone(),
+            tooltip: self.tooltip.clone(),
+            hint: self.hint.clone(),
             caret: self.caret(),
         }
     }
@@ -142,7 +158,13 @@ impl Session {
     pub fn moved(&mut self, p: PxPoint) -> Outcome {
         self.cursor = Some(p);
         match self.gesture {
-            Gesture::Idle => return Outcome::Nothing,
+            Gesture::Idle => {
+                return if self.update_bubbles() {
+                    Outcome::Redraw
+                } else {
+                    Outcome::Nothing
+                };
+            }
             Gesture::Selecting => self.sel.update(p),
             Gesture::Adjusting {
                 handle,
@@ -166,6 +188,18 @@ impl Session {
 
     /// Left button pressed at the last pointer position.
     pub fn pressed(&mut self) -> Outcome {
+        self.pressed_at(Instant::now())
+    }
+
+    /// [`Self::pressed`] at time `now`, which tells a double-click apart.
+    fn pressed_at(&mut self, now: Instant) -> Outcome {
+        let outcome = self.press(now);
+        self.update_bubbles();
+        outcome
+    }
+
+    fn press(&mut self, now: Instant) -> Outcome {
+        let last_press = self.last_press.take();
         let Some(p) = self.cursor else {
             return Outcome::Nothing;
         };
@@ -190,6 +224,16 @@ impl Session {
                 start: self.sel.clone(),
             };
         } else if self.ann.is_empty() {
+            let double = last_press.is_some_and(|(t, q)| {
+                now.saturating_duration_since(t) <= self.double_click
+                    && (q.x - p.x).abs() <= DOUBLE_CLICK_SLOP
+                    && (q.y - p.y).abs() <= DOUBLE_CLICK_SLOP
+            });
+            if double {
+                self.select_monitor(p);
+                return Outcome::Redraw;
+            }
+            self.last_press = Some((now, p));
             self.sel.begin(p);
             self.gesture = Gesture::Selecting;
         } else {
@@ -207,6 +251,7 @@ impl Session {
         if was_drawing && self.ann.shapes().last().is_some_and(is_degenerate) {
             self.ann.undo();
         }
+        self.update_bubbles();
         Outcome::Redraw
     }
 
@@ -223,6 +268,14 @@ impl Session {
                 self.ann.undo();
                 Outcome::Redraw
             }
+            Key::Text(s) if s.eq_ignore_ascii_case("f") => match self.cursor {
+                Some(p) if matches!(self.gesture, Gesture::Idle) => {
+                    self.select_monitor(p);
+                    self.update_bubbles();
+                    Outcome::Redraw
+                }
+                _ => Outcome::Nothing,
+            },
             _ => Outcome::Nothing,
         }
     }
@@ -268,6 +321,42 @@ impl Session {
             image,
             captured_at: self.captured_at,
         }
+    }
+
+    /// Selects the whole monitor under `p`, keeping drawings on the same screen content.
+    fn select_monitor(&mut self, p: PxPoint) {
+        let area = self.monitor_at(p).area;
+        if let Some(old) = self.sel.rect() {
+            self.ann
+                .translate((old.x - area.x) as f32, (old.y - area.y) as f32);
+        }
+        self.sel.set(area);
+        self.gesture = Gesture::Idle;
+        self.relayout();
+    }
+
+    /// Recomputes the toolbar tooltip and the selection hint for the pointer position.
+    /// Returns whether either changed.
+    fn update_bubbles(&mut self) -> bool {
+        let (tooltip, hint) = match (self.cursor, self.font.clone()) {
+            (Some(p), Some(font)) if matches!(self.gesture, Gesture::Idle) => {
+                let button = self.toolbar.iter().find(|(_, r)| r.contains(p));
+                let tooltip = button.map(|&(item, r)| {
+                    let m = self.monitor_at(PxPoint { x: r.x, y: r.y });
+                    tooltip_layout(item.tooltip(), r, m.area, m.scale, &font)
+                });
+                let hint = self.sel.rect().is_none().then(|| {
+                    let m = self.monitor_at(p);
+                    hint_layout(m.area, m.scale, &font)
+                });
+                (tooltip, hint)
+            }
+            _ => (None, None),
+        };
+        let changed = tooltip != self.tooltip || hint != self.hint;
+        self.tooltip = tooltip;
+        self.hint = hint;
+        changed
     }
 
     fn click(&mut self, item: ToolbarItem) -> Outcome {
@@ -425,18 +514,22 @@ impl Session {
             .map_or(1.0, |r| self.monitor_at(corner(r)).scale)
     }
 
-    /// Everything drawn over the veil: selection with border/handles, label, toolbar.
+    /// Everything drawn over the veil: selection with border/handles, label, toolbar,
+    /// tooltip and hint.
     fn chrome_bounds(&self) -> Option<PxRect> {
-        let sel = self.sel.rect()?;
         let m = (CHROME_MARGIN * self.chrome_scale()).ceil() as i32;
-        let grown = PxRect {
+        let grown = self.sel.rect().map(|sel| PxRect {
             x: sel.x - m,
             y: sel.y - m,
             w: sel.w + 2 * m as u32,
             h: sel.h + 2 * m as u32,
-        };
-        let bounds = union(Some(grown), self.label.as_ref().map(|l| l.1));
-        union(bounds, toolbar::bounds(&self.toolbar))
+        });
+        [&self.label, &self.tooltip, &self.hint]
+            .into_iter()
+            .flatten()
+            .map(|b| b.rect)
+            .chain(toolbar::bounds(&self.toolbar))
+            .fold(grown, |acc, r| union(acc, Some(r)))
     }
 
     /// The monitor containing `p`, or the nearest one.
@@ -532,6 +625,7 @@ mod tests {
             vec![shot(-200), shot(0)],
             font,
             NaiveDateTime::default(),
+            Duration::from_millis(500),
         )
     }
 
@@ -625,6 +719,95 @@ mod tests {
         assert_eq!(shape_on_desktop(&s), before);
         let img = s.finish(Action::Close).image.expect("image");
         assert_eq!(img.dimensions(), (221, 61)); // rows above the desktop are dropped
+    }
+
+    fn click_at(s: &mut Session, p: (i32, i32), now: Instant) {
+        s.moved(PxPoint { x: p.0, y: p.1 });
+        s.pressed_at(now);
+        s.released();
+    }
+
+    #[test]
+    fn double_click_selects_the_monitor_under_the_pointer() {
+        let mut s = session(false);
+        let t = Instant::now();
+        click_at(&mut s, (-50, 40), t);
+        assert!(s.sel.rect().is_none());
+        click_at(&mut s, (-48, 41), t + Duration::from_millis(200));
+        let monitor = PxRect {
+            x: -200,
+            y: 0,
+            w: 200,
+            h: 100,
+        };
+        assert_eq!(s.sel.rect(), Some(monitor));
+        assert!(!s.toolbar.is_empty());
+        let img = s.finish(Action::Copy).image.expect("image");
+        assert_eq!(img.dimensions(), (200, 100));
+    }
+
+    #[test]
+    fn slow_or_distant_clicks_are_not_a_double_click() {
+        let mut s = session(false);
+        let t = Instant::now();
+        click_at(&mut s, (50, 40), t);
+        click_at(&mut s, (50, 40), t + Duration::from_millis(900));
+        assert!(s.sel.rect().is_none());
+        click_at(&mut s, (80, 40), t + Duration::from_millis(1000));
+        assert!(s.sel.rect().is_none());
+    }
+
+    #[test]
+    fn f_selects_the_monitor_and_keeps_drawings_in_place() {
+        let mut s = session(false);
+        drag(&mut s, (20, 20), (120, 80));
+        s.tool = Some(Tool::Rect);
+        drag(&mut s, (40, 30), (60, 50));
+        let before = shape_on_desktop(&s);
+        assert_eq!(s.key(Key::Text("F".into())), Outcome::Redraw);
+        let r = s.sel.rect().map(|r| (r.x, r.y, r.w, r.h));
+        assert_eq!(r, Some((0, 0, 200, 100)));
+        assert_eq!(shape_on_desktop(&s), before);
+    }
+
+    #[test]
+    fn f_while_typing_is_just_a_letter() {
+        let mut s = session(true);
+        drag(&mut s, (0, 0), (150, 90));
+        s.tool = Some(Tool::Text);
+        drag(&mut s, (20, 40), (20, 40));
+        s.key(Key::Text("f".into()));
+        assert_eq!(s.sel.rect().map(|r| r.w), Some(151));
+        assert!(matches!(&s.ann.shapes()[0], Shape::Text { text, .. } if text == "f"));
+    }
+
+    #[test]
+    fn hovering_a_button_shows_its_tooltip() {
+        let mut s = session(true);
+        drag(&mut s, (-150, 10), (150, 40));
+        let (item, r) = s.toolbar[0];
+        let center = PxPoint {
+            x: r.x + r.w as i32 / 2,
+            y: r.y + r.h as i32 / 2,
+        };
+        assert_eq!(s.moved(center), Outcome::Redraw);
+        assert_eq!(s.scene().tooltip.map(|b| b.text), Some(item.tooltip()));
+        assert_eq!(s.moved(PxPoint { x: 0, y: 25 }), Outcome::Redraw);
+        assert!(s.scene().tooltip.is_none());
+    }
+
+    #[test]
+    fn hint_shows_until_something_is_selected() {
+        let mut s = session(true);
+        s.moved(PxPoint { x: 50, y: 50 });
+        let hint = s.scene().hint.expect("hint");
+        assert!(hint.rect.x >= 0);
+        let covers_hint = |d: Option<PxRect>| d.is_some_and(|d| d.intersect(&hint.rect).is_some());
+        assert!(covers_hint(s.take_damage()));
+        drag(&mut s, (10, 10), (60, 60));
+        assert!(s.scene().hint.is_none());
+        // The old hint area is repainted so it does not linger.
+        assert!(covers_hint(s.take_damage()));
     }
 
     #[test]
