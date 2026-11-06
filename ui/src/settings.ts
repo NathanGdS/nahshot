@@ -1,4 +1,4 @@
-/** Settings window: prints folder, autostart, Print Screen, capture hotkey and theme. */
+/** Settings window: prints folder, autostart, Print Screen, capture hotkey, theme and updates. */
 
 import "./theme.css";
 import "./pages.css";
@@ -7,7 +7,7 @@ import type { Settings, Theme } from "./api";
 import { accelerator, heldModifiers, isModifierKey } from "./hotkey";
 import { icon } from "./icons";
 import { applyTheme, setTheme } from "./theme";
-import { choose, h, toast } from "./ui";
+import { choose, confirmDialog, h, toast } from "./ui";
 
 applyTheme();
 
@@ -190,6 +190,54 @@ const themeButtons = themes.map(([value, label]) =>
 );
 const themePicker = h("div", { class: "segmented", role: "radiogroup", "aria-label": "Tema" }, ...themeButtons);
 
+// ---- updates ---------------------------------------------------------------------
+
+const updateStatus = h("p", { class: "path", role: "status" });
+const updateLabel = h("span", {}, "Procurar atualizações");
+const updateButton = h("button", { class: "btn", type: "button", onclick: () => checkForUpdate() }, updateLabel);
+let installing = false;
+
+function idle(): void {
+  installing = false;
+  updateButton.disabled = false;
+  updateLabel.textContent = "Procurar atualizações";
+}
+
+async function checkForUpdate(): Promise<void> {
+  updateButton.disabled = true;
+  updateLabel.textContent = "Procurando…";
+  try {
+    const info = await api.checkUpdate();
+    updateStatus.textContent = `Versão ${info.current}`;
+    if (!info.latest) {
+      updateStatus.textContent = `Versão ${info.current}. Você está na versão mais recente.`;
+      return idle();
+    }
+    if (info.devBuild) {
+      updateStatus.textContent = `Versão ${info.latest} disponível, mas este é um build de desenvolvimento e não se atualiza.`;
+      return idle();
+    }
+    const ok = await confirmDialog({
+      title: `Atualizar para a versão ${info.latest}?`,
+      body: `Você tem a ${info.current}. O nahshot fecha, atualiza e abre de novo sozinho.`,
+      confirm: "Atualizar agora",
+    });
+    if (!ok) return idle();
+    installing = true;
+    updateLabel.textContent = "Baixando…";
+    await api.installUpdate();
+    // A successful install closes the app, so getting here means it did not happen.
+    idle();
+  } catch (e) {
+    toast(api.friendlyError(e), "error");
+    idle();
+  }
+}
+
+void api.onUpdateProgress((pct) => {
+  if (installing) updateLabel.textContent = pct === null ? "Baixando…" : `Baixando… ${pct}%`;
+});
+
 // ---- layout ----------------------------------------------------------------------
 
 document.querySelector("#sections")!.append(
@@ -202,6 +250,7 @@ document.querySelector("#sections")!.append(
   ),
   row("Atalho de captura", "Clique no campo e pressione a combinação.", hotkey, hotkeyError),
   row("Tema", null, themePicker),
+  row("Atualizações", "O nahshot também procura sozinho quando abre.", updateButton, updateStatus),
 );
 
 /** Shows `s` in every control. */
