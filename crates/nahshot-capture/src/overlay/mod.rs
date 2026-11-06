@@ -205,11 +205,19 @@ impl Overlay {
                 Err(e) => return error!("softbuffer context: {e}"),
             },
         };
-        let mut session = Session::new(desktop, monitors, self.font.clone(), captured_at);
+        let mut session = Session::new(
+            desktop,
+            monitors,
+            self.font.clone(),
+            captured_at,
+            window::double_click_time(),
+        );
         // A click before the first mouse move must still start a selection.
         if let Some(p) = window::cursor_pos() {
             session.moved(p);
         }
+        // Every window is painted in full below; start damage tracking from that frame.
+        session.take_damage();
         let mut shown = 0;
         for w in &mut self.windows {
             if let Err(e) = w.prepare(context, session.desktop()) {
@@ -464,7 +472,13 @@ mod tests {
             image: RgbaImage::new(4, 4),
         };
         let monitors = vec![Monitor { area, scale: 1.0 }];
-        Session::new(desktop, monitors, None, NaiveDateTime::default())
+        Session::new(
+            desktop,
+            monitors,
+            None,
+            NaiveDateTime::default(),
+            Duration::from_millis(500),
+        )
     }
 
     #[test]

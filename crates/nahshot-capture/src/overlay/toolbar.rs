@@ -20,6 +20,32 @@ pub enum ToolbarItem {
     Close,
 }
 
+/// Names of the [`PALETTE`] colors, in the same order.
+const COLOR_NAMES: [&str; 8] = [
+    "Vermelho", "Laranja", "Amarelo", "Verde", "Azul", "Roxo", "Preto", "Branco",
+];
+
+impl ToolbarItem {
+    /// What the button does, shown while the pointer rests on it.
+    pub fn tooltip(self) -> String {
+        let text = match self {
+            ToolbarItem::Tool(Tool::Pen) => "Caneta",
+            ToolbarItem::Tool(Tool::Line) => "Linha",
+            ToolbarItem::Tool(Tool::Arrow) => "Seta",
+            ToolbarItem::Tool(Tool::Rect) => "Retângulo",
+            ToolbarItem::Tool(Tool::Ellipse) => "Elipse",
+            ToolbarItem::Tool(Tool::Marker) => "Marca-texto",
+            ToolbarItem::Tool(Tool::Text) => "Texto",
+            ToolbarItem::Color(i) => return format!("Cor: {}", COLOR_NAMES[i]),
+            ToolbarItem::Undo => "Desfazer (Ctrl+Z)",
+            ToolbarItem::Copy => "Copiar (Ctrl+C)",
+            ToolbarItem::SaveAs => "Salvar como (Ctrl+S)",
+            ToolbarItem::Close => "Fechar (Esc)",
+        };
+        text.to_string()
+    }
+}
+
 /// Button side in logical pixels.
 const BUTTON: f32 = 32.0;
 /// Spacing between buttons (and between the bar and the selection), in logical pixels.
@@ -435,6 +461,16 @@ mod tests {
         };
         assert_eq!(hit(&items, center), Some(ToolbarItem::Tool(Tool::Pen)));
         assert_eq!(hit(&items, PxPoint { x: 0, y: 0 }), None);
+    }
+
+    #[test]
+    fn every_button_has_a_tooltip() {
+        assert_eq!(COLOR_NAMES.len(), PALETTE.len());
+        for item in ITEMS {
+            assert!(!item.tooltip().is_empty(), "{item:?}");
+        }
+        assert_eq!(ToolbarItem::Color(0).tooltip(), "Cor: Vermelho");
+        assert_eq!(ToolbarItem::Undo.tooltip(), "Desfazer (Ctrl+Z)");
     }
 
     #[test]
