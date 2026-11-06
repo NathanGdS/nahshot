@@ -7,6 +7,7 @@ pub mod settings;
 pub mod settings_commands;
 pub mod state;
 pub mod tray;
+pub mod updater;
 pub mod windows;
 
 use log::{error, info, warn};
@@ -38,6 +39,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| setup(app.handle()))
         .invoke_handler(tauri::generate_handler![
             commands::list_prints,
@@ -64,6 +66,8 @@ pub fn run() {
             settings_commands::pick_prints_dir,
             settings_commands::change_prints_dir,
             settings_commands::finish_welcome,
+            updater::check_update,
+            updater::install_update,
         ])
         .build(tauri::generate_context!())
         .expect("failed to start nahshot")
@@ -124,6 +128,7 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     if !first_run_done {
         windows::open_welcome(app);
     }
+    updater::check_on_startup(app);
     Ok(())
 }
 

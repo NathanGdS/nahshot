@@ -43,6 +43,8 @@ jobs:
 
       # The tag is the source of truth for the version. Windows version resources only
       # take numbers, so a prerelease (1.2.0-beta.1) is stamped as 1.2.0.
+      # Release builds also sign the installer for the in-app updater (.sig next to it);
+      # local builds don't, so they don't need the private key.
       - name: Stamp version from tag
         shell: bash
         run: |
@@ -53,6 +55,7 @@ jobs:
             const file = "src-tauri/tauri.conf.json";
             const cfg = JSON.parse(fs.readFileSync(file, "utf8"));
             cfg.version = process.argv[1].split("-")[0];
+            cfg.bundle.createUpdaterArtifacts = true;
             fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
           ' "$VERSION"
 
@@ -60,14 +63,45 @@ jobs:
       # origin, and CI already ran fmt, clippy and every test on that exact commit.
       # Re-running them in debug mode would double the release time.
 
+      # TAURI_SIGNING_PRIVATE_KEY is the minisign key whose public half is in
+      # tauri.conf.json (plugins.updater.pubkey); the key has no password.
       - name: Build installer
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         run: |
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || { echo "::error::secret TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
           npm --prefix ui run tauri build
           mkdir -p dist-release
-          cp target/release/nahshot.exe                       "dist-release/nahshot-${VERSION}-windows-amd64.exe"
-          cp target/release/bundle/nsis/nahshot_*_x64-setup.exe "dist-release/nahshot-${VERSION}-windows-amd64-setup.exe"
+          setup="nahshot-${VERSION}-windows-amd64-setup.exe"
+          cp target/release/nahshot.exe                           "dist-release/nahshot-${VERSION}-windows-amd64.exe"
+          cp target/release/bundle/nsis/nahshot_*_x64-setup.exe     "dist-release/$setup"
+          cp target/release/bundle/nsis/nahshot_*_x64-setup.exe.sig "dist-release/$setup.sig"
           ls -l dist-release
+
+      # What the in-app updater reads from releases/latest/download/latest.json.
+      - name: Write updater manifest
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const [version, repo, tag] = process.argv.slice(1);
+            const setup = `nahshot-${version}-windows-amd64-setup.exe`;
+            const manifest = {
+              version,
+              notes: `https://github.com/${repo}/releases/tag/${tag}`,
+              pub_date: new Date().toISOString(),
+              platforms: {
+                "windows-x86_64": {
+                  signature: fs.readFileSync(`dist-release/${setup}.sig`, "utf8").trim(),
+                  url: `https://github.com/${repo}/releases/download/${tag}/${setup}`,
+                },
+              },
+            };
+            fs.writeFileSync("dist-release/latest.json", JSON.stringify(manifest, null, 2));
+          ' "$VERSION" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
+          cat dist-release/latest.json
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -75,6 +109,8 @@ jobs:
           files: |
             dist-release/nahshot-${{ env.VERSION }}-windows-amd64-setup.exe
             dist-release/nahshot-${{ env.VERSION }}-windows-amd64.exe
+            dist-release/nahshot-${{ env.VERSION }}-windows-amd64-setup.exe.sig
+            dist-release/latest.json
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true

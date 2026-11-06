@@ -90,6 +90,23 @@ export const changePrintsDir = (path: string, moveExisting: boolean) =>
   invoke<ChangeDirReport>("change_prints_dir", { new: path, moveExisting });
 export const finishWelcome = (enableDefault: boolean) => invoke<void>("finish_welcome", { enableDefault });
 
+/** What `check_update` found. */
+export interface UpdateInfo {
+  current: string;
+  /** Newer version on GitHub; `null` when this one is the latest. */
+  latest: string | null;
+  /** A debug build: it can check, but never installs. */
+  devBuild: boolean;
+}
+
+export const checkUpdate = () => invoke<UpdateInfo>("check_update");
+/** Downloads and runs the installer; on success nahshot closes and reopens. */
+export const installUpdate = () => invoke<void>("install_update");
+
+/** Calls `cb` with the download progress (0–100, `null` if the size is unknown). */
+export const onUpdateProgress = (cb: (pct: number | null) => void): Promise<UnlistenFn> =>
+  listen<number | null>("update-progress", (e) => cb(e.payload));
+
 /** Calls `cb` with the new settings whenever any window changes them. */
 export const onSettingsChanged = (cb: (s: Settings) => void): Promise<UnlistenFn> =>
   listen<Settings>("settings-changed", (e) => cb(e.payload));
