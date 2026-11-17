@@ -176,13 +176,19 @@ fn rounded(rect: Rect, r: f32) -> Path {
 /// Three box-blur passes over a pixmap that holds only black (shadow) pixels.
 fn blur_alpha(p: &mut Pixmap, radius: usize) {
     let (w, h) = (p.width() as usize, p.height() as usize);
-    let mut a: Vec<f32> = p.data().chunks_exact(4).map(|px| px[3] as f32).collect();
+    let mut a: Vec<f32> = p
+        .data()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|px| px[3] as f32)
+        .collect();
     let mut tmp = vec![0.0; a.len()];
     for _ in 0..3 {
         box_pass(&a, &mut tmp, w, h, radius, true);
         box_pass(&tmp, &mut a, w, h, radius, false);
     }
-    for (px, v) in p.data_mut().chunks_exact_mut(4).zip(a) {
+    for (px, v) in p.data_mut().as_chunks_mut::<4>().0.iter_mut().zip(a) {
         px.copy_from_slice(&[0, 0, 0, v.round().clamp(0.0, 255.0) as u8]);
     }
 }

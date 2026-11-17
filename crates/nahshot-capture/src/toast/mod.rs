@@ -2,5 +2,7 @@
 
 mod model;
 mod paint;
+mod window;
 
 pub use model::ToastKind;
+pub use window::show;
