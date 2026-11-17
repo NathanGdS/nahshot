@@ -1,4 +1,5 @@
-//! The Windows "Print Screen opens Snipping Tool" toggle, stored under HKCU.
+//! HKCU registry values nahshot uses: the "Print Screen opens Snipping Tool" toggle
+//! and the Windows light/dark app theme.
 
 use std::io;
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR};
@@ -12,9 +13,28 @@ pub const KEYBOARD_KEY: &str = r"Control Panel\Keyboard";
 /// DWORD value: `1` lets Print Screen open Snipping Tool, `0` gives the key back to apps.
 pub const SNIP_VALUE: &str = "PrintScreenKeyForSnippingEnabled";
 
+/// Key under HKCU with the Windows light/dark preference.
+pub const PERSONALIZE_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+/// DWORD value: `0` when apps should use the dark theme.
+pub const APPS_LIGHT_VALUE: &str = "AppsUseLightTheme";
+
+/// Whether Windows asks apps for the dark theme; light when the value cannot be read.
+pub fn apps_use_dark_theme() -> bool {
+    dark_from(read_dword(PERSONALIZE_KEY, APPS_LIGHT_VALUE).unwrap_or(None))
+}
+
+fn dark_from(apps_use_light: Option<u32>) -> bool {
+    apps_use_light == Some(0)
+}
+
 /// Reads [`SNIP_VALUE`] under `HKCU\<key_path>`; `None` if the key or value is absent.
 pub fn read_snipping(key_path: &str) -> io::Result<Option<u32>> {
-    let (key, value) = (wide(key_path), wide(SNIP_VALUE));
+    read_dword(key_path, SNIP_VALUE)
+}
+
+/// Reads the DWORD `value_name` under `HKCU\<key_path>`; `None` if absent.
+fn read_dword(key_path: &str, value_name: &str) -> io::Result<Option<u32>> {
+    let (key, value) = (wide(key_path), wide(value_name));
     let mut data = 0u32;
     let mut size = size_of::<u32>() as u32;
     // SAFETY: both strings are NUL-terminated and outlive the call; `data`/`size`
@@ -91,6 +111,13 @@ mod tests {
                 )
             };
         }
+    }
+
+    #[test]
+    fn dark_only_when_apps_light_theme_is_zero() {
+        assert!(dark_from(Some(0)));
+        assert!(!dark_from(Some(1)));
+        assert!(!dark_from(None));
     }
 
     #[test]

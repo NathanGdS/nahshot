@@ -1,11 +1,14 @@
 //! What happens to a finished capture: save to the gallery, then copy or "save as".
 
+use crate::settings::Theme;
 use crate::state::{emit_library_changed, AppState};
 use arboard::{Clipboard, ImageData};
 use chrono::NaiveDateTime;
 use image::{ImageFormat, RgbaImage};
 use log::{error, info, warn};
 use nahshot_capture::overlay::{Action, CaptureResult};
+use nahshot_capture::registry::apps_use_dark_theme;
+use nahshot_capture::toast::{self, ToastKind};
 use nahshot_core::library::{write_new, Library};
 use nahshot_core::naming::file_name_for;
 use nahshot_core::CoreError;
@@ -69,9 +72,12 @@ fn take<T>(slot: &Mutex<Option<T>>) -> Option<T> {
 /// action. A copy goes to the clipboard first, so an immediate paste gets it.
 pub fn handle(app: &AppHandle, r: CaptureResult) {
     let Some(img) = r.image else { return };
+    let mut copied = false;
     if r.action == Action::Copy {
-        if let Err(e) = copy_to_clipboard(&img) {
-            error!("copying the capture to the clipboard: {e}");
+        copied = copy_to_clipboard(&img)
+            .inspect_err(|e| error!("copying the capture to the clipboard: {e}"))
+            .is_ok();
+        if !copied {
             notify(
                 app,
                 "Não foi possível copiar o print para a área de transferência.",
@@ -81,18 +87,59 @@ pub fn handle(app: &AppHandle, r: CaptureResult) {
     let png = encode_png(&img);
     drop(img);
     let name = file_name_for(r.captured_at);
-    match import(app, &png, r.captured_at) {
-        Imported::Registered => emit_library_changed(app),
+    let saved = match import(app, &png, r.captured_at) {
+        Imported::Registered => {
+            emit_library_changed(app);
+            true
+        }
         // The PNG is already in the prints folder; the watcher's sync registers it.
-        Imported::OnDisk(e) => warn!("{e}; the next sync registers it"),
+        Imported::OnDisk(e) => {
+            warn!("{e}; the next sync registers it");
+            true
+        }
         Imported::Refused(e) => {
             error!("import into the gallery failed: {e}");
             save_unsaved(app, &png, &name);
+            false
         }
-    }
+    };
     if r.action == Action::SaveAs {
         save_as(app, &png, &name);
     }
+    // After "save as" closes, saved or cancelled: the print is in the gallery either way.
+    if saved {
+        toast::show(
+            toast_kind(r.action, copied),
+            resolve_dark(theme(app), apps_use_dark_theme()),
+        );
+    }
+}
+
+/// The toast for a capture finished with `action`; "copied" only if the copy worked.
+fn toast_kind(action: Action, copied: bool) -> ToastKind {
+    match action {
+        Action::Copy if copied => ToastKind::Copied,
+        _ => ToastKind::Saved,
+    }
+}
+
+/// Whether the toast is dark: the app's theme, or Windows' when it is "System".
+fn resolve_dark(theme: Theme, system_dark: bool) -> bool {
+    match theme {
+        Theme::Dark => true,
+        Theme::Light => false,
+        Theme::System => system_dark,
+    }
+}
+
+/// The theme from the settings, or "System" before the state exists.
+fn theme(app: &AppHandle) -> Theme {
+    app.try_state::<AppState>().map_or(Theme::System, |s| {
+        s.settings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .theme
+    })
 }
 
 /// Encodes `img` as PNG.
@@ -218,6 +265,26 @@ fn notify(app: &AppHandle, body: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toast_kind_for_actions() {
+        assert_eq!(toast_kind(Action::Copy, true), ToastKind::Copied);
+        assert_eq!(toast_kind(Action::SaveAs, false), ToastKind::Saved);
+        assert_eq!(toast_kind(Action::Close, false), ToastKind::Saved);
+    }
+
+    #[test]
+    fn failed_copy_does_not_claim_copied() {
+        assert_eq!(toast_kind(Action::Copy, false), ToastKind::Saved);
+    }
+
+    #[test]
+    fn resolve_dark_follows_theme_then_system() {
+        assert!(resolve_dark(Theme::Dark, false));
+        assert!(!resolve_dark(Theme::Light, true));
+        assert!(resolve_dark(Theme::System, true));
+        assert!(!resolve_dark(Theme::System, false));
+    }
 
     #[test]
     fn encode_png_roundtrip() {

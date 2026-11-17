@@ -8,6 +8,7 @@ pub mod hotkey;
 pub mod overlay;
 pub mod registry;
 pub mod render;
+pub mod toast;
 
 /// Errors raised while capturing the screen or reacting to hotkeys.
 #[derive(Debug, thiserror::Error)]

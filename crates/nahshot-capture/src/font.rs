@@ -8,20 +8,23 @@ const CANDIDATES: [&str; 2] = [
     r"C:\Windows\Fonts\arial.ttf",
 ];
 
+const BOLD_CANDIDATES: [&str; 2] = [
+    r"C:\Windows\Fonts\segoeuib.ttf",
+    r"C:\Windows\Fonts\arialbd.ttf",
+];
+
 /// A loaded font face.
 pub struct Font(fontdue::Font);
 
 impl Font {
     /// Loads Segoe UI, falling back to Arial; errors if neither is usable.
     pub fn system() -> Result<Font, CaptureError> {
-        let mut last = io::Error::new(io::ErrorKind::NotFound, "no system font found");
-        for path in CANDIDATES {
-            match load(path) {
-                Ok(font) => return Ok(font),
-                Err(e) => last = e,
-            }
-        }
-        Err(last.into())
+        first_usable(&CANDIDATES)
+    }
+
+    /// Loads Segoe UI Bold, falling back to Arial Bold; errors if neither is usable.
+    pub fn system_bold() -> Result<Font, CaptureError> {
+        first_usable(&BOLD_CANDIDATES)
     }
 
     /// Horizontal advance of `text` drawn at `size` pixels.
@@ -34,6 +37,17 @@ impl Font {
     pub(crate) fn raw(&self) -> &fontdue::Font {
         &self.0
     }
+}
+
+fn first_usable(paths: &[&str]) -> Result<Font, CaptureError> {
+    let mut last = io::Error::new(io::ErrorKind::NotFound, "no system font found");
+    for path in paths {
+        match load(path) {
+            Ok(font) => return Ok(font),
+            Err(e) => last = e,
+        }
+    }
+    Err(last.into())
 }
 
 fn load(path: &str) -> io::Result<Font> {
@@ -50,6 +64,11 @@ mod tests {
     #[test]
     fn system_font_loads_on_dev_machine() {
         assert!(Font::system().is_ok());
+    }
+
+    #[test]
+    fn bold_font_loads() {
+        assert!(Font::system_bold().is_ok());
     }
 
     #[test]
