@@ -75,8 +75,8 @@ fn sync_removes_orphans_and_keeps_tags_of_survivors() {
         .unwrap();
     let a = lib.import_capture(&png(), at).unwrap();
     let b = lib.import_capture(&png(), at).unwrap();
-    lib.add_tag(a.id, "keep").unwrap();
-    lib.add_tag(b.id, "gone").unwrap();
+    lib.add_tag(&[a.id], "keep").unwrap();
+    lib.add_tag(&[b.id], "gone").unwrap();
     std::fs::remove_file(&b.path).unwrap();
     assert_eq!(
         lib.sync().unwrap(),
@@ -164,8 +164,8 @@ fn t_at() -> chrono::NaiveDateTime {
 fn sync_keeps_rows_while_root_is_unreachable() {
     let (d, lib) = lib();
     let p = lib.import_capture(&png(), t_at()).unwrap();
-    lib.add_tag(p.id, "keep").unwrap();
-    lib.set_favorite(p.id, true).unwrap();
+    lib.add_tag(&[p.id], "keep").unwrap();
+    lib.set_favorite(&[p.id], true).unwrap();
     // The drive is unplugged: the whole root vanishes for a while.
     let away = d.path().join("away");
     std::fs::rename(lib.root(), &away).unwrap();
@@ -231,8 +231,8 @@ fn sync_registers_many_files_in_one_go() {
 fn deleting_the_root_and_restoring_it_keeps_tags() {
     let (d, lib) = lib();
     let p = lib.import_capture(&png(), t_at()).unwrap();
-    lib.add_tag(p.id, "keep").unwrap();
-    lib.set_favorite(p.id, true).unwrap();
+    lib.add_tag(&[p.id], "keep").unwrap();
+    lib.set_favorite(&[p.id], true).unwrap();
     // The prints folder goes to the Recycle Bin and the app recreates it empty.
     let bin = d.path().join("bin");
     std::fs::rename(lib.root(), &bin).unwrap();
@@ -264,8 +264,8 @@ fn deleting_the_root_and_restoring_it_keeps_tags() {
 fn moving_a_file_out_and_back_keeps_tags() {
     let (d, lib) = lib();
     let p = lib.import_capture(&png(), t_at()).unwrap();
-    lib.add_tag(p.id, "keep").unwrap();
-    lib.set_favorite(p.id, true).unwrap();
+    lib.add_tag(&[p.id], "keep").unwrap();
+    lib.set_favorite(&[p.id], true).unwrap();
     let desktop = d.path().join("desktop");
     std::fs::create_dir_all(&desktop).unwrap();
     let outside = desktop.join(&p.file_name);
@@ -299,7 +299,7 @@ fn missing_rows_are_purged_after_retention() {
     let (d, lib) = lib();
     let now = t_at();
     let p = lib.import_capture(&png(), now).unwrap();
-    lib.add_tag(p.id, "keep").unwrap();
+    lib.add_tag(&[p.id], "keep").unwrap();
     let aside = d.path().join("aside.png");
 
     // Away for 30 days (the limit, inclusive): still tracked, restored with its tag.
@@ -347,10 +347,10 @@ fn missing_rows_do_not_count() {
     let (d, lib) = lib();
     let a = lib.import_capture(&png(), t_at()).unwrap();
     let b = lib.import_capture(&png(), t_at()).unwrap();
-    lib.add_tag(a.id, "shared").unwrap();
-    lib.add_tag(a.id, "only-a").unwrap();
-    lib.set_favorite(a.id, true).unwrap();
-    lib.add_tag(b.id, "shared").unwrap();
+    lib.add_tag(&[a.id], "shared").unwrap();
+    lib.add_tag(&[a.id], "only-a").unwrap();
+    lib.set_favorite(&[a.id], true).unwrap();
+    lib.add_tag(&[b.id], "shared").unwrap();
     std::fs::remove_file(&a.path).unwrap();
     assert_eq!(lib.sync().unwrap().removed, 1);
 
@@ -387,7 +387,7 @@ fn missing_rows_do_not_count() {
 fn adopting_a_print_marked_missing_keeps_its_tags() {
     let (d, lib) = lib();
     let p = lib.import_capture(&png(), t_at()).unwrap();
-    lib.add_tag(p.id, "keep").unwrap();
+    lib.add_tag(&[p.id], "keep").unwrap();
     // The print ends up aside (e.g. a move that failed half way) and sync misses it.
     let unsaved = d.path().join("unsaved");
     std::fs::create_dir_all(&unsaved).unwrap();
@@ -404,7 +404,7 @@ fn adopting_a_print_marked_missing_keeps_its_tags() {
 fn moving_a_file_inside_the_root_between_syncs_keeps_tags() {
     let (_d, lib) = lib();
     let p = lib.import_capture(&png(), t_at()).unwrap();
-    lib.add_tag(p.id, "keep").unwrap();
+    lib.add_tag(&[p.id], "keep").unwrap();
     lib.create_album("Memes").unwrap();
     let moved = lib.root().join("Álbuns").join("Memes").join(&p.file_name);
     std::fs::rename(&p.path, &moved).unwrap();
@@ -424,7 +424,7 @@ fn moving_a_file_inside_the_root_between_syncs_keeps_tags() {
 
 fn tagged(lib: &Library, at: chrono::NaiveDateTime, tag: &str) -> nahshot_core::model::Print {
     let p = lib.import_capture(&png(), at).unwrap();
-    lib.add_tag(p.id, tag).unwrap();
+    lib.add_tag(&[p.id], tag).unwrap();
     p
 }
 
@@ -499,8 +499,8 @@ fn mutations_on_a_missing_print_are_refused() {
     assert_eq!(lib.sync().unwrap().removed, 1);
     let not_found = |r: nahshot_core::Result<()>| matches!(r, Err(CoreError::PrintNotFound(_)));
     assert!(not_found(lib.rename(a.id, "x").map(|_| ())));
-    assert!(not_found(lib.set_favorite(a.id, true)));
-    assert!(not_found(lib.add_tag(a.id, "new")));
+    assert!(not_found(lib.set_favorite(&[a.id], true)));
+    assert!(not_found(lib.add_tag(&[a.id], "new")));
     assert!(not_found(lib.remove_tag(a.id, "keep")));
     assert!(not_found(lib.move_to_album(&[a.id], "Memes")));
     assert!(not_found(lib.remove_from_album(&[a.id])));

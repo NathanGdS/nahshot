@@ -210,8 +210,8 @@ fn query_filters_search_and_order() {
     let p3 = lib
         .import_capture(&png(), t("2026-11-04 12:00:00"))
         .unwrap();
-    lib.set_favorite(p2.id, true).unwrap();
-    lib.add_tag(p3.id, "figma").unwrap();
+    lib.set_favorite(&[p2.id], true).unwrap();
+    lib.add_tag(&[p3.id], "figma").unwrap();
     lib.create_album("Trabalho").unwrap();
     lib.move_to_album(&[p1.id], "Trabalho").unwrap();
 
@@ -481,4 +481,56 @@ fn import_reports_a_written_but_unregistered_file() {
         }
         other => panic!("expected Unregistered, got {other:?}"),
     }
+}
+
+#[test]
+fn favorite_and_tag_apply_to_many_prints_at_once() {
+    let (_d, lib) = lib();
+    let a = lib
+        .import_capture(&png(), t("2026-11-04 10:00:00"))
+        .unwrap();
+    let b = lib
+        .import_capture(&png(), t("2026-11-04 11:00:00"))
+        .unwrap();
+    let c = lib
+        .import_capture(&png(), t("2026-11-04 12:00:00"))
+        .unwrap();
+
+    lib.set_favorite(&[a.id, c.id], true).unwrap();
+    lib.add_tag(&[a.id, b.id], "bug").unwrap();
+    let newest = SortOrder::NewestFirst;
+    assert_eq!(
+        ids(&lib, &query(Filter::Favorites, None, newest)),
+        vec![c.id, a.id]
+    );
+    assert_eq!(
+        ids(&lib, &query(Filter::Tag("bug".into()), None, newest)),
+        vec![b.id, a.id]
+    );
+
+    lib.set_favorite(&[a.id, c.id], false).unwrap();
+    assert!(ids(&lib, &query(Filter::Favorites, None, newest)).is_empty());
+    // Tagging twice is harmless.
+    lib.add_tag(&[a.id], "bug").unwrap();
+    assert_eq!(lib.get(a.id).unwrap().tags, vec!["bug".to_string()]);
+}
+
+#[test]
+fn batch_with_an_unknown_print_changes_nothing() {
+    let (_d, lib) = lib();
+    let a = lib.import_capture(&png(), t0()).unwrap();
+    let ghost = PrintId(a.id.0 + 1000);
+
+    assert!(matches!(
+        lib.set_favorite(&[a.id, ghost], true),
+        Err(CoreError::PrintNotFound(_))
+    ));
+    assert!(matches!(
+        lib.add_tag(&[a.id, ghost], "x"),
+        Err(CoreError::PrintNotFound(_))
+    ));
+    let p = lib.get(a.id).unwrap();
+    assert!(!p.favorite);
+    assert!(p.tags.is_empty());
+    assert!(lib.tags().unwrap().is_empty());
 }
