@@ -73,7 +73,8 @@ tag="v$version"
 echo "$remote_tags" | grep -qx "$tag" && die "a tag $tag já existe no origin."
 git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "a tag $tag já existe localmente. Apague com: git tag -d $tag"
 
-echo "Última versão no origin: ${latest_stable:+v$latest_stable}${latest_stable:-nenhuma}"
+latest_label=${latest_stable:+v$latest_stable}
+echo "Última versão no origin: ${latest_label:-nenhuma}"
 echo "Nova tag:                $tag  ($(git rev-parse --short HEAD) $(git log -1 --format=%s))"
 [ "$ahead" -gt 0 ] && echo "Antes, vai enviar $ahead commit(s) da $BRANCH para o origin."
 
