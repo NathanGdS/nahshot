@@ -4,7 +4,10 @@
 
 nahshot is a Windows screenshot app in the spirit of Lightshot: press Print Screen, select an area, annotate, then copy or save. The difference is that **no screenshot is ever lost**. Every confirmed capture is saved as a plain PNG in a folder organized by month and shows up in a gallery where you can browse by date, search, and organize with albums, tags and favorites. Organizing is optional: if you never touch anything, everything is still reachable by date. And it has to stay light, otherwise we'd just go back to Lightshot. That's why the capture overlay is native and the gallery only exists while it's open.
 
-![nahshot gallery](docs/media/gallery.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/gallery-dark.png">
+  <img alt="nahshot gallery" src="docs/media/gallery.png">
+</picture>
 
 ## Download
 
