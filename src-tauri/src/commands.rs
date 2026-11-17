@@ -192,16 +192,16 @@ pub async fn rename_print(app: AppHandle, id: PrintId, stem: String) -> CmdResul
     .await
 }
 
-/// Marks or unmarks a print as favorite.
+/// Marks or unmarks prints as favorite.
 #[tauri::command]
-pub async fn set_favorite(app: AppHandle, id: PrintId, value: bool) -> CmdResult<()> {
-    mutate(app, move |lib| lib.set_favorite(id, value)).await
+pub async fn set_favorite(app: AppHandle, ids: Vec<PrintId>, value: bool) -> CmdResult<()> {
+    mutate(app, move |lib| lib.set_favorite(&ids, value)).await
 }
 
-/// Attaches a tag to a print.
+/// Attaches a tag to prints.
 #[tauri::command]
-pub async fn add_tag(app: AppHandle, id: PrintId, tag: String) -> CmdResult<()> {
-    mutate(app, move |lib| lib.add_tag(id, &tag)).await
+pub async fn add_tag(app: AppHandle, ids: Vec<PrintId>, tag: String) -> CmdResult<()> {
+    mutate(app, move |lib| lib.add_tag(&ids, &tag)).await
 }
 
 /// Detaches a tag from a print.

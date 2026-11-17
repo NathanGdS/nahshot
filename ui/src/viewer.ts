@@ -122,7 +122,7 @@ export class Viewer {
       const tag = input.value.trim();
       if (!tag) return;
       input.value = "";
-      attempt(api.addTag(p.id, tag));
+      attempt(api.addTag([p.id], tag));
     });
     const chips = p.tags.map((t) =>
       h(
@@ -152,7 +152,7 @@ export class Viewer {
           this.renaming = true;
           this.render();
         }),
-        action("star", p.favorite ? "Favorito" : "Favoritar", () => attempt(api.setFavorite(p.id, !p.favorite)), p.favorite ? "on" : ""),
+        action("star", p.favorite ? "Favorito" : "Favoritar", () => attempt(api.setFavorite([p.id], !p.favorite)), p.favorite ? "on" : ""),
       ),
       h("section", { class: "field" }, h("h3", { class: "field-label" }, "Álbum"), albumButton),
       h("section", { class: "field" }, h("h3", { class: "field-label" }, "Etiquetas"), h("div", { class: "chips" }, ...chips, this.tagInput)),

@@ -49,8 +49,8 @@ export const listPrints = (query: Query) => invoke<Print[]>("list_prints", { que
 export const ensureThumbs = (ids: number[]) => invoke<Thumb[]>("ensure_thumbs", { ids });
 export const getSidebar = () => invoke<Sidebar>("get_sidebar");
 export const renamePrint = (id: number, stem: string) => invoke<Print>("rename_print", { id, stem });
-export const setFavorite = (id: number, value: boolean) => invoke<void>("set_favorite", { id, value });
-export const addTag = (id: number, tag: string) => invoke<void>("add_tag", { id, tag });
+export const setFavorite = (ids: number[], value: boolean) => invoke<void>("set_favorite", { ids, value });
+export const addTag = (ids: number[], tag: string) => invoke<void>("add_tag", { ids, tag });
 export const removeTag = (id: number, tag: string) => invoke<void>("remove_tag", { id, tag });
 export const createAlbum = (name: string) => invoke<string>("create_album", { name });
 export const renameAlbum = (old: string, newName: string) => invoke<string>("rename_album", { old, new: newName });

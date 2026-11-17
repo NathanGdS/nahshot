@@ -113,14 +113,16 @@ impl Library {
         self.get(id)
     }
 
-    /// Sets or clears the favorite flag.
-    pub fn set_favorite(&self, id: PrintId, favorite: bool) -> Result<()> {
-        self.db.set_favorite(id, favorite)
+    /// Sets or clears the favorite flag of every print in `ids`, all or nothing.
+    pub fn set_favorite(&self, ids: &[PrintId], favorite: bool) -> Result<()> {
+        self.db
+            .transaction(|db| ids.iter().try_for_each(|&id| db.set_favorite(id, favorite)))
     }
 
-    /// Attaches a tag to a print.
-    pub fn add_tag(&self, id: PrintId, tag: &str) -> Result<()> {
-        self.db.add_tag(id, tag)
+    /// Attaches a tag to every print in `ids`, all or nothing.
+    pub fn add_tag(&self, ids: &[PrintId], tag: &str) -> Result<()> {
+        self.db
+            .transaction(|db| ids.iter().try_for_each(|&id| db.add_tag(id, tag)))
     }
 
     /// Detaches a tag from a print.
