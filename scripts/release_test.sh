@@ -57,6 +57,12 @@ git tag v9.9.9
 bash "$SCRIPT" --yes >/dev/null 2>&1
 [ "$(remote_tags)" = "v0.1.0 " ]; check "ignores tags that were never pushed" $?
 
+# the summary names the latest version once (or "nenhuma" before the first release)
+setup
+bash "$SCRIPT" --dry-run 2>&1 | grep -qx "Última versão no origin: nenhuma"; check "summary without releases" $?
+git tag v0.1.2 && git push -q origin v0.1.2
+bash "$SCRIPT" --dry-run 2>&1 | grep -qx "Última versão no origin: v0.1.2"; check "summary shows latest version once" $?
+
 # bump ignores prereleases when picking the base
 setup
 git tag v1.0.0 && git tag v1.1.0-beta.1 && git push -q origin --tags
