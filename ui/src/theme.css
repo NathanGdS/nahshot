@@ -435,9 +435,93 @@ p {
   font-weight: 500;
 }
 
+/* ---- selection bar (replaces the toolbar while prints are selected) ------------ */
+
+.toolbar.selecting {
+  background: var(--accent-soft);
+}
+.toolbar.selecting > :not(.selbar) {
+  display: none;
+}
+.selbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  margin-left: -10px;
+}
+.selbar[hidden] {
+  display: none;
+}
+.selbar-close {
+  width: 32px;
+  padding: 0;
+}
+.selbar-count {
+  margin: 0 8px 0 4px;
+  font: 600 16px/1.2 var(--font-display);
+  white-space: nowrap;
+}
+.selbar-all {
+  color: var(--accent);
+  font-weight: 600;
+}
+.selbar-spacer {
+  flex: 1;
+}
+.selbar-action {
+  padding: 0 10px;
+}
+.selbar-action.danger {
+  color: var(--danger);
+}
+.selbar-action.danger:hover {
+  background: var(--danger-soft);
+}
+@media (max-width: 980px) {
+  .selbar-label {
+    display: none;
+  }
+  .selbar-action {
+    width: 34px;
+    padding: 0;
+  }
+}
+
+/* Small floating box (the tag field of the selection). */
+.popover {
+  position: fixed;
+  z-index: 50;
+  width: 280px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+  box-shadow: var(--shadow-pop);
+  animation: pop 110ms ease-out;
+}
+.popover-title {
+  margin: 0 0 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.popover-chips {
+  margin-top: 10px;
+}
+.chip-btn {
+  padding: 0 10px;
+  border: 0;
+}
+.chip-btn:hover {
+  background: color-mix(in srgb, var(--accent-soft), var(--accent) 12%);
+}
+
 /* ---- grid ------------------------------------------------------------------ */
 
 .content {
+  position: relative;
   flex: 1;
   overflow-y: auto;
   scrollbar-gutter: stable;
@@ -460,6 +544,71 @@ p {
 .day-count {
   color: var(--text-3);
   font: 400 12px var(--font);
+}
+
+/* Select-the-whole-day circle: shows on hover of the day, always while selecting. */
+.day-check {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 20px;
+  height: 20px;
+  margin-left: -28px;
+  margin-right: 8px;
+  padding: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--raised);
+  color: transparent;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.day-check .icon {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.8;
+}
+.day:hover .day-check,
+.grid.selecting .day-check,
+.day-check:focus-visible {
+  opacity: 1;
+}
+.day-check:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* Part of the day selected: a dash instead of the check. */
+.day-check.some {
+  border-color: var(--accent);
+}
+.day-check.some .icon {
+  display: none;
+}
+.day-check.some::after {
+  content: "";
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+.day-check.all {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Drag-to-select rectangle. */
+.marquee {
+  position: absolute;
+  z-index: 3;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+body.marquee-active {
+  user-select: none;
+  cursor: default;
 }
 
 .tiles {
@@ -548,10 +697,27 @@ p {
   height: 14px;
   stroke-width: 2.6;
 }
-.tile:hover .tile-check {
+.tile:hover .tile-check,
+.grid.selecting .tile-check {
   opacity: 1;
 }
-.tile.selected .tile-check {
+.tile-check {
+  cursor: pointer;
+}
+/* A bigger hit area than the 22px circle, so it is easy to click. */
+.tile-check::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+}
+.tile .tile-check:hover {
+  border-color: #fff;
+  background: rgb(0 0 0 / 0.45);
+  color: rgb(255 255 255 / 0.85);
+}
+.tile.selected .tile-check,
+.tile.selected .tile-check:hover {
   opacity: 1;
   border-color: var(--accent);
   background: var(--accent);
