@@ -8,7 +8,7 @@
 use crate::geom::PxRect;
 use crate::toast::model::{frame_at, layout, palette, Palette, ToastKind};
 use crate::toast::paint::{paint, Fonts};
-use log::warn;
+use log::{info, warn};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -68,6 +68,7 @@ pub fn dismiss() {
 /// Shows a toast for `kind` without blocking, replacing any toast on screen.
 /// Failures only reach the log: a missing toast must never break a capture.
 pub fn show(kind: ToastKind, dark: bool) {
+    info!("toast: {kind:?} (dark: {dark})");
     let generation = CURRENT.claim();
     let spawned = std::thread::Builder::new()
         .name("nahshot-toast".into())
