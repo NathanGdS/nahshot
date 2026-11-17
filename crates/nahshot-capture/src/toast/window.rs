@@ -24,11 +24,13 @@ use windows_sys::Win32::UI::HiDpi::{
     GetDpiForMonitor, SetThreadDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     MDT_EFFECTIVE_DPI,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::GWL_EXSTYLE;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos, PeekMessageW,
-    RegisterClassW, ShowWindow, TranslateMessage, UpdateLayeredWindow, MSG, PM_REMOVE,
-    SW_SHOWNOACTIVATE, ULW_ALPHA, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    RegisterClassW, SetWindowDisplayAffinity, SetWindowLongPtrW, ShowWindow, TranslateMessage,
+    UpdateLayeredWindow, MSG, PM_REMOVE, SW_SHOWNOACTIVATE, ULW_ALPHA, WDA_EXCLUDEFROMCAPTURE,
+    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+    WS_POPUP,
 };
 
 /// Time between animation frames (about 60 per second).
@@ -45,12 +47,23 @@ impl Current {
         self.0.fetch_add(1, Ordering::SeqCst) + 1
     }
 
+    /// Ends the live toast, if any, without starting a new one.
+    pub fn dismiss(&self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+
     pub fn is_current(&self, generation: u64) -> bool {
         self.0.load(Ordering::SeqCst) == generation
     }
 }
 
 static CURRENT: Current = Current(AtomicU64::new(0));
+
+/// Closes the toast on screen, if any, within a frame. Called when a new capture
+/// starts, so the toast does not sit over the overlay.
+pub fn dismiss() {
+    CURRENT.dismiss();
+}
 
 /// Shows a toast for `kind` without blocking, replacing any toast on screen.
 /// Failures only reach the log: a missing toast must never break a capture.
@@ -190,12 +203,11 @@ impl Window {
         let (w, h) = (rect.w as i32, rect.h as i32);
         // SAFETY: every handle is checked before use and released in `Drop`.
         unsafe {
+            let ex_style = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT;
+            // Created without WS_EX_LAYERED: Windows refuses display affinity on a
+            // window that is already layered, but keeps it once the style is added.
             let hwnd = CreateWindowExW(
-                WS_EX_LAYERED
-                    | WS_EX_TOPMOST
-                    | WS_EX_TOOLWINDOW
-                    | WS_EX_NOACTIVATE
-                    | WS_EX_TRANSPARENT,
+                ex_style,
                 class.as_ptr(),
                 class.as_ptr(),
                 WS_POPUP,
@@ -212,6 +224,12 @@ impl Window {
                 warn!("toast: window creation failed");
                 return None;
             }
+            // Keep the toast out of screen grabs, nahshot's own included: a print taken
+            // while it is still showing must not contain it (Windows 10 2004+).
+            if SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) == 0 {
+                warn!("toast: cannot exclude the window from screen captures");
+            }
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (ex_style | WS_EX_LAYERED) as isize);
             let screen = GetDC(std::ptr::null_mut());
             let mem = CreateCompatibleDC(screen);
             let mut info: BITMAPINFO = std::mem::zeroed();
@@ -331,5 +349,13 @@ mod tests {
         let second = slot.claim();
         assert!(!slot.is_current(first));
         assert!(slot.is_current(second));
+    }
+
+    #[test]
+    fn dismiss_ends_the_current_toast() {
+        let slot = Current::default();
+        let toast = slot.claim();
+        slot.dismiss();
+        assert!(!slot.is_current(toast));
     }
 }

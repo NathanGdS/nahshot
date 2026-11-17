@@ -165,6 +165,7 @@ impl Overlay {
         if self.session.is_some() {
             return;
         }
+        crate::toast::dismiss();
         let started = Instant::now();
         let captured_at = Local::now().naive_local();
         let shots = match grab_all() {

@@ -72,9 +72,12 @@ fn take<T>(slot: &Mutex<Option<T>>) -> Option<T> {
 /// action. A copy goes to the clipboard first, so an immediate paste gets it.
 pub fn handle(app: &AppHandle, r: CaptureResult) {
     let Some(img) = r.image else { return };
+    let mut copied = false;
     if r.action == Action::Copy {
-        if let Err(e) = copy_to_clipboard(&img) {
-            error!("copying the capture to the clipboard: {e}");
+        copied = copy_to_clipboard(&img)
+            .inspect_err(|e| error!("copying the capture to the clipboard: {e}"))
+            .is_ok();
+        if !copied {
             notify(
                 app,
                 "Não foi possível copiar o print para a área de transferência.",
@@ -106,17 +109,17 @@ pub fn handle(app: &AppHandle, r: CaptureResult) {
     // After "save as" closes, saved or cancelled: the print is in the gallery either way.
     if saved {
         toast::show(
-            toast_kind(r.action),
+            toast_kind(r.action, copied),
             resolve_dark(theme(app), apps_use_dark_theme()),
         );
     }
 }
 
-/// The toast for a capture finished with `action`.
-fn toast_kind(action: Action) -> ToastKind {
+/// The toast for a capture finished with `action`; "copied" only if the copy worked.
+fn toast_kind(action: Action, copied: bool) -> ToastKind {
     match action {
-        Action::Copy => ToastKind::Copied,
-        Action::SaveAs | Action::Close => ToastKind::Saved,
+        Action::Copy if copied => ToastKind::Copied,
+        _ => ToastKind::Saved,
     }
 }
 
@@ -265,9 +268,14 @@ mod tests {
 
     #[test]
     fn toast_kind_for_actions() {
-        assert_eq!(toast_kind(Action::Copy), ToastKind::Copied);
-        assert_eq!(toast_kind(Action::SaveAs), ToastKind::Saved);
-        assert_eq!(toast_kind(Action::Close), ToastKind::Saved);
+        assert_eq!(toast_kind(Action::Copy, true), ToastKind::Copied);
+        assert_eq!(toast_kind(Action::SaveAs, false), ToastKind::Saved);
+        assert_eq!(toast_kind(Action::Close, false), ToastKind::Saved);
+    }
+
+    #[test]
+    fn failed_copy_does_not_claim_copied() {
+        assert_eq!(toast_kind(Action::Copy, false), ToastKind::Saved);
     }
 
     #[test]

@@ -5,4 +5,4 @@ mod paint;
 mod window;
 
 pub use model::ToastKind;
-pub use window::show;
+pub use window::{dismiss, show};
