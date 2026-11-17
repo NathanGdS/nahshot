@@ -2,106 +2,125 @@
 
 > A lightweight Lightshot-style screenshot tool for Windows, where every capture lands in an organized gallery. Rust + Tauri v2.
 
-O nahshot é um app de captura de tela para Windows no estilo do Lightshot: você aperta Print Screen, seleciona uma área, anota e copia ou salva. A diferença é que **nenhum print se perde**. Toda captura confirmada vai, como PNG normal, para uma pasta organizada por mês e aparece numa galeria onde dá para navegar por data, buscar e organizar com álbuns, etiquetas e favoritos. Organizar é opcional: sem mexer em nada, tudo continua acessível por data. E ele tem que ser leve, senão a gente volta pro Lightshot. Por isso o overlay de captura é nativo e a galeria só existe enquanto está aberta.
+nahshot is a Windows screenshot app in the spirit of Lightshot: press Print Screen, select an area, annotate, then copy or save. The difference is that **no screenshot is ever lost**. Every confirmed capture is saved as a plain PNG in a folder organized by month and shows up in a gallery where you can browse by date, search, and organize with albums, tags and favorites. Organizing is optional: if you never touch anything, everything is still reachable by date. And it has to stay light, otherwise we'd just go back to Lightshot. That's why the capture overlay is native and the gallery only exists while it's open.
 
-![Galeria do nahshot](docs/media/gallery.png)
+![nahshot gallery](docs/media/gallery.png)
 
-## Recursos
+## Download
 
-**Captura**
-- Print Screen (opcional: o nahshot assume a tecla e bloqueia a Ferramenta de Captura) ou um atalho alternativo (padrão `Ctrl+Shift+S`, configurável), além do menu da bandeja.
-- A tela congela e escurece em **todos os monitores**. A seleção pode atravessar monitores com escalas de DPI diferentes, e a imagem salva fica em pixels físicos.
-- Seleção com tamanho em pixels, ajustável (mover/redimensionar) antes de confirmar.
-- Anotações: caneta livre, linha, seta, retângulo, elipse, marca-texto e texto, com seletor de cor e desfazer (`Ctrl+Z`).
-- Copiar (`Ctrl+C`), Salvar como… (`Ctrl+S`) e Fechar (`Esc`). Qualquer captura com área selecionada é salva na galeria, mesmo se você só copiar ou fechar.
+Grab the latest installer (`nahshot-<version>-windows-amd64-setup.exe`) or the standalone `.exe` from the [Releases](https://github.com/NathanGdS/nahshot/releases/latest) page. After that, nahshot keeps itself up to date (see [Auto-update](#auto-update)).
 
-**Galeria**
-- Grade de miniaturas agrupada por dia (Hoje, Ontem, datas), do mais novo pro mais velho, com opção de inverter.
-- Busca por nome, etiqueta ou álbum.
-- Álbuns (que são pastas de verdade no disco), etiquetas e favoritos.
-- Visualizador com copiar, abrir no Explorer, renomear (renomeia o arquivo), favoritar, mover para álbum, etiquetar e apagar (vai para a Lixeira).
-- Seleção múltipla (`Ctrl`/`Shift`+clique) e arrastar para um álbum.
-- A pasta é a fonte da verdade: um PNG adicionado ou apagado pelo Explorer aparece ou some da galeria sozinho.
+Requirements: Windows 10/11 64-bit with the WebView2 Runtime (bundled with Windows 11 and up-to-date Windows 10). No admin rights needed. The app interface is currently in Portuguese.
+
+## Features
+
+**Capture**
+- Print Screen (optional: nahshot takes over the key and blocks the Snipping Tool) or an alternative hotkey (default `Ctrl+Shift+S`, configurable), plus the tray menu.
+- The screen freezes and dims on **every monitor**. A selection can span monitors with different DPI scales, and the saved image is in physical pixels.
+- Selection shows its size in pixels and can be moved/resized before confirming.
+- **Full monitor in one go**: double-click an empty area or press **F** to select the whole monitor under the cursor. A hint at the top of the screen reminds you of this.
+- Annotations: freehand pen, line, arrow, rectangle, ellipse, highlighter and text, with a color picker and undo (`Ctrl+Z`).
+- **Tooltips** on every toolbar button, showing the tool name and its shortcut.
+- Copy (`Ctrl+C`), Save as… (`Ctrl+S`) and Close (`Esc`). Any capture with a selected area is saved to the gallery, even if you only copy or close it.
+
+**Gallery**
+- Thumbnail grid grouped by day (Today, Yesterday, dates), newest first, with an option to reverse.
+- Search by name, tag or album.
+- Albums (real folders on disk), tags and favorites.
+- Viewer with copy, show in Explorer, rename (renames the file), favorite, move to album, tag and delete (goes to the Recycle Bin).
+- Multi-select (`Ctrl`/`Shift`+click) and drag onto an album.
+- The folder is the source of truth: a PNG added or deleted in Explorer appears in or disappears from the gallery on its own.
 
 **App**
-- Fica na bandeja, inicia com o Windows (configurável) e roda em instância única.
-- Configurações: pasta dos prints (com opção de mover os existentes), iniciar com o Windows, Print Screen padrão, atalho e tema claro/escuro.
-- 100% local, sem rede, sem precisar de administrador.
+- Lives in the system tray, starts with Windows (configurable) and runs as a single instance.
+- Settings: screenshots folder (with an option to move existing ones), start with Windows, Print Screen as default, hotkey, light/dark theme, and update check.
+- Auto-update from GitHub Releases, with signed installers.
+- 100% local: your screenshots never leave your machine. The only network access is the update check against GitHub.
 
-## Arquitetura
+## Auto-update
 
-Um workspace Cargo com três crates:
+On startup (release builds only) nahshot checks in the background for a new stable version. If one exists, it asks *Update now / Later*; on accept, it downloads the installer, closes, installs and reopens. You can also check manually in **Settings → Updates**.
 
-| Crate | Papel |
+Under the hood it uses `tauri-plugin-updater`: the app reads `latest.json` from the latest GitHub release, downloads the NSIS installer and verifies its minisign signature against the public key in `tauri.conf.json` before installing. Prereleases are never offered. Network failures only go to the log.
+
+> v0.1.0 has no updater: if you have it, install the next version manually once.
+
+## Architecture
+
+A Cargo workspace with three crates:
+
+| Crate | Role |
 |---|---|
-| `crates/nahshot-core` | Domínio, sem UI: nomes de arquivo, biblioteca de prints (PNG + SQLite com `rusqlite`), álbuns como pastas, sincronização com a pasta, file watcher (`notify`), cache de miniaturas e realocação da pasta dos prints. |
-| `crates/nahshot-capture` | Captura nativa: grava os monitores (`xcap`), desenha o overlay de seleção e anotação (`winit` + `softbuffer` + `tiny-skia`, texto com `fontdue`), atalho global e hook de teclado de baixo nível para o Print Screen. |
-| `src-tauri` (pacote `nahshot`) | O app Tauri v2: bandeja, configurações, fluxo de captura (PNG → biblioteca → área de transferência / Salvar como), comandos da galeria e janelas. |
+| `crates/nahshot-core` | UI-free domain: file names, screenshot library (PNG + SQLite via `rusqlite`), albums as folders, folder sync, file watcher (`notify`), thumbnail cache and screenshots-folder relocation. |
+| `crates/nahshot-capture` | Native capture: grabs the monitors (`xcap`), draws the selection and annotation overlay (`winit` + `softbuffer` + `tiny-skia`, text via `fontdue`), global hotkey and a low-level keyboard hook for Print Screen. |
+| `src-tauri` (package `nahshot`) | The Tauri v2 app: tray, settings, capture flow (PNG → library → clipboard / Save as), gallery commands, updater and windows. |
 
-A UI da galeria, das configurações e da tela de boas-vindas fica em `ui/` (TypeScript puro + Vite, sem framework).
+The gallery, settings and welcome UI lives in `ui/` (plain TypeScript + Vite, no framework).
 
-**Por que o overlay é nativo?** A meta é o overlay aparecer em menos de ~150 ms depois do Print Screen e o app ocupar menos de ~30 MB parado. Subir um WebView2 a cada captura é lento demais, e deixar um pré-aquecido custaria ~198 MB de RAM o tempo todo (é o que a galeria aberta consome, somando os processos do WebView2). Então o overlay é uma janela `winit` por monitor que pinta direto num buffer de software com `tiny-skia`, numa thread própria que também atende o hook de teclado. O WebView2 só existe enquanto a galeria (ou as configurações) estiver aberta. Fechou a janela, os processos do WebView2 encerram e o app volta para o consumo de bandeja.
+**Why a native overlay?** The goal is for the overlay to appear in under ~150 ms after Print Screen and for the app to use under ~30 MB while idle. Spinning up a WebView2 on every capture is too slow, and keeping one pre-warmed would cost ~198 MB of RAM all the time (that's what the open gallery uses, summing the WebView2 processes). So the overlay is one `winit` window per monitor painting straight into a software buffer with `tiny-skia`, on its own thread that also serves the keyboard hook. WebView2 only exists while the gallery (or settings) is open. Close the window and the WebView2 processes exit, bringing the app back to its tray footprint.
 
-## Leveza medida
+## Measured footprint
 
-Medido no build de release (`target\release\nahshot.exe`, gerado por `npm --prefix ui run tauri build`; o mesmo binário que o instalador NSIS empacota, rodado sem instalar), Windows 10 Pro com dois monitores 1920×1080, em 2026-11-04. A memória é a soma do processo `nahshot` **e de todos os descendentes** (WebView2 incluído), medida com [`scripts/measure-idle.ps1`](scripts/measure-idle.ps1).
+Measured on the release build (`target\release\nahshot.exe`, built with `npm --prefix ui run tauri build`; the same binary the NSIS installer ships, run without installing), Windows 10 Pro with two 1920×1080 monitors, on 2026-11-04. Memory is the sum of the `nahshot` process **and all its descendants** (WebView2 included), measured with [`scripts/measure-idle.ps1`](scripts/measure-idle.ps1).
 
-| Estado | Private bytes | Working set | Processos |
+| State | Private bytes | Working set | Processes |
 |---|---|---|---|
-| Parado na bandeja, 60 s após o boot | **23.2 MB** | 33.4 MB | 1 |
-| Depois de 5 capturas | 24.2 MB | 37.1 MB | 1 |
-| Depois de abrir e fechar a galeria (+10 s) | 26.0 MB | 46.0 MB | 1 |
-| *(referência) galeria aberta* | *197.7 MB* | *357.9 MB* | *7* |
+| Idle in tray, 60 s after boot | **23.2 MB** | 33.4 MB | 1 |
+| After 5 captures | 24.2 MB | 37.1 MB | 1 |
+| After opening and closing the gallery (+10 s) | 26.0 MB | 46.0 MB | 1 |
+| *(reference) gallery open* | *197.7 MB* | *357.9 MB* | *7* |
 
-Meta do spec: **< 30 MB parado**, contando os filhos. Atingida em todos os estados parados; depois de fechar a galeria não sobra nenhum processo `msedgewebview2`.
+Spec target: **< 30 MB idle**, children included. Met in every idle state; after closing the gallery no `msedgewebview2` process is left behind.
 
-Latência do atalho até o overlay visível (`overlay_visible_ms`, do evento do atalho até o último monitor apresentado, em 10 capturas): **mediana 76 ms** (faixa de 67 a 86 ms). Meta: < 150 ms.
+Latency from hotkey to visible overlay (`overlay_visible_ms`, from the hotkey event until the last monitor is presented, over 10 captures): **median 76 ms** (range 67–86 ms). Target: < 150 ms.
 
-Para medir de novo, com o app rodando:
+To measure again, with the app running:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\measure-idle.ps1
 # nahshot idle: private=23.2 MB, working_set=33.4 MB, processes=1
 ```
 
-O script sai com código 1 se os private bytes passarem de 30 MB. Para ver a latência, rode o exe com `RUST_LOG=nahshot_capture=info` e redirecione o stderr.
+The script exits with code 1 if private bytes exceed 30 MB. To see latency, run the exe with `RUST_LOG=nahshot_capture=info` and redirect stderr.
 
-## Como compilar
+## Building
 
-Pré-requisitos: Windows 10/11 64-bit, Rust estável (toolchain MSVC), Node.js e o WebView2 Runtime (já vem no Windows 11 e nos Windows 10 atualizados).
+Prerequisites: Windows 10/11 64-bit, stable Rust (MSVC toolchain), Node.js and the WebView2 Runtime.
 
 ```powershell
 npm --prefix ui install
-npm --prefix ui run tauri build    # equivale a `cargo tauri build`
+npm --prefix ui run tauri build    # same as `cargo tauri build`
 ```
 
-O instalador sai em `target\release\bundle\nsis\` e o executável em `target\release\nahshot.exe`. Para desenvolver: `npm --prefix ui run tauri dev`.
+The installer lands in `target\release\bundle\nsis\` and the executable in `target\release\nahshot.exe`. For development: `npm --prefix ui run tauri dev`.
 
-Testes:
+Tests:
 
 ```powershell
 cargo test --workspace
 npm --prefix ui test
 ```
 
-Um `cargo build` ou `cargo clippy` direto, num clone novo, precisa de `ui/dist`. Rode `npm --prefix ui run build` antes (o Tauri CLI faz isso sozinho).
+A plain `cargo build` or `cargo clippy` on a fresh clone needs `ui/dist`. Run `npm --prefix ui run build` first (the Tauri CLI does it for you).
 
-O `Makefile` tem atalhos para tudo isso (`make dev`, `make build`, `make test`, `make lint`).
+The `Makefile` has shortcuts for all of this (`make dev`, `make build`, `make test`, `make lint`).
+
+Local builds are not signed and don't need the updater key; signing only happens in CI.
 
 ## Releases
 
-A versão vem da tag. Para publicar, na `main` atualizada e sem mudanças pendentes:
+The version comes from the tag. To publish, on an up-to-date `main` with no pending changes:
 
 ```powershell
-make release            # próximo patch (ex.: v0.1.0 → v0.1.1)
-make release V=minor    # ou V=major, ou V=1.2.0, ou V=1.2.0-beta.1
+make release            # next patch (e.g. v0.1.0 → v0.1.1)
+make release V=minor    # or V=major, V=1.2.0, V=1.2.0-beta.1
 ```
 
-O [`scripts/release.sh`](scripts/release.sh) confere a branch, as mudanças pendentes e se a `main` está em dia com o origin, mostra a próxima tag e pede confirmação (`--dry-run` só mostra). Ao enviar a tag `v*`, o workflow [`release.yml`](.github/workflows/release.yml) gera o instalador NSIS (os testes já rodaram no CI da `main`) e publica a release no GitHub com `nahshot-<versão>-windows-amd64-setup.exe` e o `.exe` avulso. Tags com sufixo (`-beta.1`) saem como prerelease.
+[`scripts/release.sh`](scripts/release.sh) checks the branch, pending changes and whether `main` is in sync with origin, shows the next tag and asks for confirmation (`--dry-run` only shows it). Pushing a `v*` tag triggers [`release.yml`](.github/workflows/release.yml), which builds the NSIS installer (tests already ran on `main`'s CI), signs it with the `TAURI_SIGNING_PRIVATE_KEY` secret, and publishes a GitHub release with `nahshot-<version>-windows-amd64-setup.exe`, its `.sig`, `latest.json` and the standalone `.exe`. Tags with a suffix (`-beta.1`) are published as prereleases and are not offered by the updater.
 
-## Onde ficam os prints
+## Where screenshots live
 
-Por padrão em `%USERPROFILE%\Pictures\nahshot` (segue a pasta Imagens do Windows, inclusive se ela estiver no OneDrive), configurável:
+By default in `%USERPROFILE%\Pictures\nahshot` (follows the Windows Pictures folder, including when it's on OneDrive), configurable:
 
 ```
 nahshot\
@@ -111,15 +130,15 @@ nahshot\
   2026-10\
     ...
   Álbuns\
-    Projeto\
+    Project\
       2026-11-01_15-10-40.png
 ```
 
-- São PNGs normais, abertos pelo Explorer mesmo sem o app. Desinstalar o nahshot não apaga nada.
-- Um álbum é uma subpasta de `Álbuns\`. Uma pasta criada ali pelo Explorer vira álbum.
-- Etiquetas, favoritos e a data de captura ficam num SQLite em `%LOCALAPPDATA%\dev.nathangds.nahshot\`, junto com o cache de miniaturas. As configurações ficam em `%APPDATA%\dev.nathangds.nahshot\settings.json`.
+- They're regular PNGs, openable from Explorer even without the app. Uninstalling nahshot deletes nothing.
+- An album is a subfolder of `Álbuns\`. A folder created there in Explorer becomes an album.
+- Tags, favorites and capture dates live in a SQLite database in `%LOCALAPPDATA%\dev.nathangds.nahshot\`, alongside the thumbnail cache. Settings live in `%APPDATA%\dev.nathangds.nahshot\settings.json`.
 
-## Backlog
+## Roadmap
 
-- Editar/reanotar um print antigo a partir da galeria.
-- Upload para a nuvem com link compartilhável.
+- Edit/re-annotate an old screenshot from the gallery.
+- Cloud upload with a shareable link.
