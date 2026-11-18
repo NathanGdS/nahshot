@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDateTime;
+use log::warn;
 
 use crate::db::Db;
 use crate::model::{Filter, Print, PrintId, PrintRow, Query, SortOrder};
@@ -17,29 +18,55 @@ use crate::{CoreError, Result};
 pub struct Library {
     pub(crate) root: PathBuf,
     pub(crate) db: Db,
+    /// Folder holding the albums: `root\Albums`, or the old `root\Álbuns` while it
+    /// could not be migrated.
+    pub(crate) albums: PathBuf,
 }
 
-/// Returns the album a file lives in, i.e. `Some(name)` for `root\Álbuns\name\file`.
-pub fn album_of(root: &Path, path: &Path) -> Option<String> {
+/// Returns the album a file lives in, i.e. `Some(name)` for `<albums_dir>\name\file`.
+pub fn album_of(albums_dir: &Path, path: &Path) -> Option<String> {
     let dir = path.parent()?;
-    if dir.parent()? != albums_dir(root) {
+    if dir.parent()? != albums_dir {
         return None;
     }
     Some(dir.file_name()?.to_string_lossy().into_owned())
 }
 
 impl Library {
-    /// Opens the library rooted at `root` with its metadata in `db_path`.
+    /// Opens the library rooted at `root` with its metadata in `db_path`, migrating
+    /// an old `Álbuns` folder (see [`Library::migrate_albums_dir`]).
     pub fn open(root: PathBuf, db_path: &Path) -> Result<Library> {
-        Ok(Library {
-            root: std::path::absolute(root)?,
+        let root = std::path::absolute(root)?;
+        let mut lib = Library {
+            albums: albums_dir(&root),
+            root,
             db: Db::open(db_path)?,
-        })
+        };
+        lib.migrate_albums()?;
+        Ok(lib)
+    }
+
+    /// Runs [`Library::migrate_albums_dir`], where only a database failure is fatal: a
+    /// folder that cannot be moved keeps working and is retried next time.
+    pub(crate) fn migrate_albums(&mut self) -> Result<()> {
+        match self.migrate_albums_dir() {
+            Ok(_) => Ok(()),
+            Err(e @ CoreError::Db(_)) => Err(e),
+            Err(e) => {
+                warn!("migrating the album folder: {e}");
+                Ok(())
+            }
+        }
     }
 
     /// Root folder of the library.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Folder holding the album folders.
+    pub fn albums_dir(&self) -> &Path {
+        &self.albums
     }
 
     /// Stores a captured PNG in its month folder and registers it.
@@ -137,7 +164,7 @@ impl Library {
 
     /// Lists album folders alphabetically; empty when none exist yet.
     pub fn albums(&self) -> Result<Vec<String>> {
-        let entries = match fs::read_dir(albums_dir(&self.root)) {
+        let entries = match fs::read_dir(&self.albums) {
             Ok(entries) => entries,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(e.into()),
@@ -156,7 +183,7 @@ impl Library {
     /// Creates an album folder and returns its validated name.
     pub fn create_album(&self, name: &str) -> Result<String> {
         let name = validate_album_name(name)?;
-        fs::create_dir_all(albums_dir(&self.root))?;
+        fs::create_dir_all(&self.albums)?;
         match fs::create_dir(self.album_dir(&name)) {
             Ok(()) => Ok(name),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(CoreError::AlbumExists(name)),
@@ -174,7 +201,7 @@ impl Library {
         }
         fs::rename(&from, &to)?;
         for row in self.db.all()? {
-            if album_of(&self.root, &row.path).as_deref() == Some(old.as_str()) {
+            if album_of(&self.albums, &row.path).as_deref() == Some(old.as_str()) {
                 if let Some(file_name) = row.path.file_name() {
                     self.db.update_path(row.id, &to.join(file_name))?;
                 }
@@ -190,7 +217,7 @@ impl Library {
         let name = self.resolve_album(name)?;
         let dir = self.album_dir(&name);
         for row in self.db.all()? {
-            if album_of(&self.root, &row.path).as_deref() == Some(name.as_str()) {
+            if album_of(&self.albums, &row.path).as_deref() == Some(name.as_str()) {
                 self.move_to_month(&row)?;
             }
         }
@@ -217,7 +244,7 @@ impl Library {
     pub fn remove_from_album(&self, ids: &[PrintId]) -> Result<()> {
         for &id in ids {
             let row = self.db.get(id)?;
-            if album_of(&self.root, &row.path).is_some() {
+            if album_of(&self.albums, &row.path).is_some() {
                 self.move_to_month(&row)?;
             }
         }
@@ -249,7 +276,7 @@ impl Library {
     }
 
     fn album_dir(&self, name: &str) -> PathBuf {
-        albums_dir(&self.root).join(name)
+        self.albums.join(name)
     }
 
     fn move_to_month(&self, row: &PrintRow) -> Result<()> {
@@ -276,7 +303,7 @@ impl Library {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default(),
-            album: album_of(&self.root, &row.path),
+            album: album_of(&self.albums, &row.path),
             path: row.path,
             captured_at: row.captured_at,
             favorite: row.favorite,

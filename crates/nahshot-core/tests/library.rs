@@ -65,7 +65,7 @@ fn album_move_is_a_real_folder_move() {
     assert_eq!(p2.album.as_deref(), Some("Bugs"));
     assert_eq!(
         p2.path,
-        lib.root().join("Álbuns").join("Bugs").join(&p.file_name)
+        lib.root().join("Albums").join("Bugs").join(&p.file_name)
     );
     assert!(p2.path.exists() && !p.path.exists());
     lib.remove_from_album(&[p.id]).unwrap();
@@ -153,7 +153,7 @@ fn delete_album_returns_prints_to_month_folder() {
     let p2 = lib.get(p.id).unwrap();
     assert_eq!(p2.path, p.path);
     assert!(p2.path.exists());
-    assert!(!lib.root().join("Álbuns").join("Bugs").exists());
+    assert!(!lib.root().join("Albums").join("Bugs").exists());
     assert!(lib.albums().unwrap().is_empty());
 }
 
@@ -163,7 +163,7 @@ fn delete_album_keeps_folder_with_foreign_files() {
     let p = lib.import_capture(&png(), t0()).unwrap();
     lib.create_album("Bugs").unwrap();
     lib.move_to_album(&[p.id], "Bugs").unwrap();
-    let note = lib.root().join("Álbuns").join("Bugs").join("notes.txt");
+    let note = lib.root().join("Albums").join("Bugs").join("notes.txt");
     std::fs::write(&note, b"keep me").unwrap();
     lib.delete_album("Bugs").unwrap();
     assert!(note.exists());
@@ -264,10 +264,11 @@ fn delete_removes_from_gallery() {
 #[test]
 fn album_of_detects_direct_children_only() {
     let root = PathBuf::from("R");
-    let inside = root.join("Álbuns").join("Bugs").join("a.png");
-    assert_eq!(album_of(&root, &inside).as_deref(), Some("Bugs"));
-    assert_eq!(album_of(&root, &root.join("2026-11").join("a.png")), None);
-    assert_eq!(album_of(&root, &root.join("Álbuns").join("a.png")), None);
+    let albums = root.join("Albums");
+    let inside = albums.join("Bugs").join("a.png");
+    assert_eq!(album_of(&albums, &inside).as_deref(), Some("Bugs"));
+    assert_eq!(album_of(&albums, &root.join("2026-11").join("a.png")), None);
+    assert_eq!(album_of(&albums, &albums.join("a.png")), None);
 }
 
 #[test]
@@ -331,7 +332,7 @@ fn relocate_with_move_preserves_structure() {
     assert_eq!(
         album.path,
         new_root
-            .join("Álbuns")
+            .join("Albums")
             .join("Bugs")
             .join("2026-10-01_08-00-00.png")
     );

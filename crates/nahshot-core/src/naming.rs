@@ -39,8 +39,14 @@ pub fn month_dir(root: &Path, t: NaiveDateTime) -> PathBuf {
     root.join(t.format("%Y-%m").to_string())
 }
 
-/// Folder that holds the album directories: `root\Álbuns`.
+/// Folder that holds the album directories: `root\Albums`, whatever the UI language.
 pub fn albums_dir(root: &Path) -> PathBuf {
+    root.join("Albums")
+}
+
+/// Where albums lived before they got a fixed English name: `root\Álbuns`.
+/// See [`crate::library::Library::migrate_albums_dir`].
+pub fn legacy_albums_dir(root: &Path) -> PathBuf {
     root.join("Álbuns")
 }
 
@@ -149,6 +155,10 @@ mod tests {
             .and_hms_opt(0, 0, 0)
             .unwrap();
         assert_eq!(month_dir(Path::new("R"), t), Path::new("R").join("2026-01"));
-        assert_eq!(albums_dir(Path::new("R")), Path::new("R").join("Álbuns"));
+        assert_eq!(albums_dir(Path::new("R")), Path::new("R").join("Albums"));
+        assert_eq!(
+            legacy_albums_dir(Path::new("R")),
+            Path::new("R").join("Álbuns")
+        );
     }
 }

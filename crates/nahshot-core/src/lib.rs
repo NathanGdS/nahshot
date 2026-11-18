@@ -3,6 +3,7 @@
 pub mod db;
 pub mod error;
 pub mod library;
+pub mod migrate;
 pub mod model;
 pub mod naming;
 pub mod relocate;
