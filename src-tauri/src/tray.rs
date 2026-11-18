@@ -2,31 +2,37 @@
 
 use crate::state::AppState;
 use crate::windows;
+use nahshot_i18n::t;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Wry};
 
 const CAPTURE: &str = "capture";
 const GALLERY: &str = "gallery";
 const SETTINGS: &str = "settings";
 const QUIT: &str = "quit";
+const TRAY_ID: &str = "main";
 
-/// Installs the tray icon: Capturar, Abrir galeria, Configurações, Sair.
-pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    let item = |id: &str, text: &str| MenuItem::with_id(app, id, text, true, None::<&str>);
-    let menu = Menu::with_items(
+/// The tray menu in the current language: Capture, Open gallery, Settings, Quit.
+fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
+    let item = |id: &str, text: String| MenuItem::with_id(app, id, text, true, None::<&str>);
+    Menu::with_items(
         app,
         &[
-            &item(CAPTURE, "Capturar")?,
-            &item(GALLERY, "Abrir galeria")?,
-            &item(SETTINGS, "Configurações")?,
+            &item(CAPTURE, t("tray.capture"))?,
+            &item(GALLERY, t("tray.gallery"))?,
+            &item(SETTINGS, t("tray.settings"))?,
             &PredefinedMenuItem::separator(app)?,
-            &item(QUIT, "Sair")?,
+            &item(QUIT, t("tray.quit"))?,
         ],
-    )?;
-    let mut tray = TrayIconBuilder::with_id("main")
+    )
+}
+
+/// Installs the tray icon and its menu.
+pub fn build(app: &AppHandle) -> tauri::Result<()> {
+    let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("nahshot")
-        .menu(&menu)
+        .menu(&menu(app)?)
         .show_menu_on_left_click(false)
         .on_menu_event(on_menu)
         .on_tray_icon_event(on_icon);
@@ -35,6 +41,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     }
     tray.build(app)?;
     Ok(())
+}
+
+/// Rebuilds the menu after a language change.
+pub fn refresh(app: &AppHandle) -> tauri::Result<()> {
+    match app.tray_by_id(TRAY_ID) {
+        Some(tray) => tray.set_menu(Some(menu(app)?)),
+        None => Ok(()),
+    }
 }
 
 fn on_menu(app: &AppHandle, event: MenuEvent) {

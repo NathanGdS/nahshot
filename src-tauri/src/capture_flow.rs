@@ -12,6 +12,7 @@ use nahshot_capture::toast::{self, ToastKind};
 use nahshot_core::library::{write_new, Library};
 use nahshot_core::naming::file_name_for;
 use nahshot_core::CoreError;
+use nahshot_i18n::{t, tf};
 use std::borrow::Cow;
 use std::io::{self, Cursor};
 use std::path::PathBuf;
@@ -78,10 +79,7 @@ pub fn handle(app: &AppHandle, r: CaptureResult) {
             .inspect_err(|e| error!("copying the capture to the clipboard: {e}"))
             .is_ok();
         if !copied {
-            notify(
-                app,
-                "Não foi possível copiar o print para a área de transferência.",
-            );
+            notify(app, &t("capture.copyFailed"));
         }
     }
     let png = encode_png(&img);
@@ -207,13 +205,13 @@ fn save_unsaved(app: &AppHandle, png: &[u8], name: &str) {
             write_new(&dir, name, png).map_err(|e| e.to_string())
         });
     let body = match saved {
-        Ok(path) => format!(
-            "Não foi possível salvar na pasta dos prints; o print foi guardado em {}",
-            path.display()
+        Ok(path) => tf(
+            "capture.keptAside",
+            &[("path", &path.display().to_string())],
         ),
         Err(e) => {
             error!("fallback save failed: {e}");
-            format!("Não foi possível salvar o print: {e}")
+            tf("capture.saveFailed", &[("error", &e)])
         }
     };
     notify(app, &body);
@@ -246,7 +244,7 @@ fn save_as(app: &AppHandle, png: &[u8], name: &str) {
         .and_then(|path| std::fs::write(&path, png).map_err(|e| e.to_string()));
     if let Err(e) = result {
         error!("save as failed: {e}");
-        notify(app, &format!("Não foi possível salvar a cópia: {e}"));
+        notify(app, &tf("capture.saveCopyFailed", &[("error", &e)]));
     }
 }
 

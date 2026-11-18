@@ -2,11 +2,12 @@
 //! settings immediately and broadcasts them as `settings-changed`.
 
 use crate::commands::{blocking, CmdResult};
-use crate::settings::{apply_print_screen_default, Settings, Theme};
+use crate::settings::{apply_print_screen_default, Language, Settings, Theme};
 use crate::state::{self, AppState};
 use crate::{start_watcher, sync_autostart};
 use log::{error, warn};
 use nahshot_capture::hotkey::parse_accelerator;
+use nahshot_i18n::t;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::PoisonError;
@@ -97,6 +98,21 @@ pub async fn set_theme(app: AppHandle, theme: Theme) -> CmdResult<()> {
     .await
 }
 
+/// Switches the app's language: saves it, then redraws the tray and reloads the
+/// open windows in it. The overlay and the toast pick it up on their next showing.
+#[tauri::command]
+pub async fn set_language(app: AppHandle, language: Language) -> CmdResult<()> {
+    blocking(app, move |app, state| {
+        state.update_settings(app, |s| {
+            s.language = language;
+            Ok(())
+        })?;
+        crate::apply_language(app, language);
+        Ok(())
+    })
+    .await
+}
+
 /// Asks for a new prints folder; `None` when the dialog is cancelled.
 #[tauri::command]
 pub async fn pick_prints_dir(app: AppHandle, window: WebviewWindow) -> CmdResult<Option<PathBuf>> {
@@ -109,7 +125,7 @@ pub async fn pick_prints_dir(app: AppHandle, window: WebviewWindow) -> CmdResult
             .clone();
         app.dialog()
             .file()
-            .set_title("Escolha a pasta dos prints")
+            .set_title(t("settings.folder.pick"))
             .set_directory(current)
             .set_parent(&window)
             .blocking_pick_folder()

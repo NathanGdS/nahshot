@@ -3016,6 +3016,7 @@ dependencies = [
  "log",
  "nahshot-capture",
  "nahshot-core",
+ "nahshot-i18n",
  "serde",
  "serde_json",
  "tauri",
@@ -3039,6 +3040,7 @@ dependencies = [
  "global-hotkey",
  "image",
  "log",
+ "nahshot-i18n",
  "softbuffer",
  "thiserror 2.0.21",
  "tiny-skia 0.12.0",
@@ -3062,6 +3064,14 @@ dependencies = [
  "thiserror 2.0.21",
  "trash",
  "walkdir",
+]
+
+[[package]]
+name = "nahshot-i18n"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

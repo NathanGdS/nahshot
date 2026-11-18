@@ -4,6 +4,7 @@ use crate::annotate::{Color, Tool, PALETTE};
 use crate::font::Font;
 use crate::geom::{PxPoint, PxRect};
 use crate::render::draw_text;
+use nahshot_i18n::{t, tf};
 use tiny_skia::{
     FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, PixmapMut, Rect, Stroke, Transform,
 };
@@ -20,29 +21,41 @@ pub enum ToolbarItem {
     Close,
 }
 
-/// Names of the [`PALETTE`] colors, in the same order.
-const COLOR_NAMES: [&str; 8] = [
-    "Vermelho", "Laranja", "Amarelo", "Verde", "Azul", "Roxo", "Preto", "Branco",
-];
+/// Names of the [`PALETTE`] colors in the current language, in the same order.
+fn color_names() -> [String; 8] {
+    [
+        t("color.red"),
+        t("color.orange"),
+        t("color.yellow"),
+        t("color.green"),
+        t("color.blue"),
+        t("color.purple"),
+        t("color.black"),
+        t("color.white"),
+    ]
+}
 
 impl ToolbarItem {
-    /// What the button does, shown while the pointer rests on it.
+    /// What the button does in the current language, shown while the pointer rests on it.
     pub fn tooltip(self) -> String {
-        let text = match self {
-            ToolbarItem::Tool(Tool::Pen) => "Caneta",
-            ToolbarItem::Tool(Tool::Line) => "Linha",
-            ToolbarItem::Tool(Tool::Arrow) => "Seta",
-            ToolbarItem::Tool(Tool::Rect) => "Retângulo",
-            ToolbarItem::Tool(Tool::Ellipse) => "Elipse",
-            ToolbarItem::Tool(Tool::Marker) => "Marca-texto",
-            ToolbarItem::Tool(Tool::Text) => "Texto",
-            ToolbarItem::Color(i) => return format!("Cor: {}", COLOR_NAMES[i]),
-            ToolbarItem::Undo => "Desfazer (Ctrl+Z)",
-            ToolbarItem::Copy => "Copiar (Ctrl+C)",
-            ToolbarItem::SaveAs => "Salvar como (Ctrl+S)",
-            ToolbarItem::Close => "Fechar (Esc)",
-        };
-        text.to_string()
+        match self {
+            ToolbarItem::Tool(Tool::Pen) => t("toolbar.pen"),
+            ToolbarItem::Tool(Tool::Line) => t("toolbar.line"),
+            ToolbarItem::Tool(Tool::Arrow) => t("toolbar.arrow"),
+            ToolbarItem::Tool(Tool::Rect) => t("toolbar.rect"),
+            ToolbarItem::Tool(Tool::Ellipse) => t("toolbar.ellipse"),
+            ToolbarItem::Tool(Tool::Marker) => t("toolbar.marker"),
+            ToolbarItem::Tool(Tool::Text) => t("toolbar.text"),
+            ToolbarItem::Color(i) => {
+                let names = color_names();
+                let name = names.get(i).map_or("", String::as_str);
+                tf("toolbar.color", &[("name", name)])
+            }
+            ToolbarItem::Undo => t("toolbar.undo"),
+            ToolbarItem::Copy => t("toolbar.copy"),
+            ToolbarItem::SaveAs => t("toolbar.saveAs"),
+            ToolbarItem::Close => t("toolbar.close"),
+        }
     }
 }
 
@@ -465,12 +478,15 @@ mod tests {
 
     #[test]
     fn every_button_has_a_tooltip() {
-        assert_eq!(COLOR_NAMES.len(), PALETTE.len());
+        assert_eq!(color_names().len(), PALETTE.len());
         for item in ITEMS {
-            assert!(!item.tooltip().is_empty(), "{item:?}");
+            let tip = item.tooltip();
+            assert!(!tip.is_empty() && !tip.contains('{'), "{item:?}: {tip}");
+            assert!(!tip.starts_with("toolbar."), "{item:?}: untranslated {tip}");
         }
-        assert_eq!(ToolbarItem::Color(0).tooltip(), "Cor: Vermelho");
-        assert_eq!(ToolbarItem::Undo.tooltip(), "Desfazer (Ctrl+Z)");
+        // Tests never change the language, so it is the default, English.
+        assert_eq!(ToolbarItem::Color(0).tooltip(), "Color: Red");
+        assert_eq!(ToolbarItem::Undo.tooltip(), "Undo (Ctrl+Z)");
     }
 
     #[test]
