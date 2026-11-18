@@ -2,6 +2,7 @@
 
 import * as api from "./api";
 import type { Print } from "./api";
+import { locale, t, tn } from "./i18n";
 import { icon, type IconName } from "./icons";
 import { attempt, confirmDialog, h, inlineInput, showMenuBelow, toast } from "./ui";
 
@@ -11,7 +12,7 @@ export interface ViewerHost {
   albums: () => string[];
 }
 
-const when = new Intl.DateTimeFormat("pt-BR", { dateStyle: "long", timeStyle: "short" });
+const when = new Intl.DateTimeFormat(locale(), { dateStyle: "long", timeStyle: "short" });
 const stem = (fileName: string) => fileName.replace(/\.png$/i, "");
 
 export class Viewer {
@@ -27,15 +28,15 @@ export class Viewer {
   constructor(private host: ViewerHost) {
     const nav = (dir: -1 | 1, name: IconName, label: string) =>
       h("button", { class: `viewer-nav viewer-${dir < 0 ? "prev" : "next"}`, title: label, "aria-label": label, onclick: () => this.step(dir) }, icon(name));
-    this.prev = nav(-1, "left", "Anterior (←)");
-    this.next = nav(1, "right", "Próximo (→)");
+    this.prev = nav(-1, "left", t("viewer.prev"));
+    this.next = nav(1, "right", t("viewer.next"));
     const stage = h(
       "div",
       { class: "viewer-stage", onclick: (e: MouseEvent) => e.target === stage && this.close() },
       this.img,
       this.prev,
       this.next,
-      h("button", { class: "viewer-close", title: "Fechar (Esc)", "aria-label": "Fechar", onclick: () => this.close() }, icon("close")),
+      h("button", { class: "viewer-close", title: t("viewer.closeHint"), "aria-label": t("viewer.close"), onclick: () => this.close() }, icon("close")),
     );
     this.root = h("div", { class: "viewer", role: "dialog", "aria-modal": "true", hidden: true }, stage, this.panel);
     document.body.append(this.root);
@@ -106,7 +107,7 @@ export class Viewer {
     const title = this.renaming
       ? inlineInput({
           value: stem(p.fileName),
-          placeholder: "Nome do arquivo",
+          placeholder: t("viewer.fileName"),
           submit: (v) => api.renamePrint(p.id, v),
           done: () => {
             this.renaming = false;
@@ -115,7 +116,7 @@ export class Viewer {
         })
       : h("h2", { class: "viewer-title", title: p.fileName }, p.fileName);
 
-    this.tagInput = h("input", { class: "tag-input", type: "text", placeholder: "Adicionar etiqueta…", spellcheck: "false" });
+    this.tagInput = h("input", { class: "tag-input", type: "text", placeholder: t("action.addTagMenu"), spellcheck: "false" });
     this.tagInput.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
       const input = e.target as HTMLInputElement;
@@ -124,12 +125,12 @@ export class Viewer {
       input.value = "";
       attempt(api.addTag([p.id], tag));
     });
-    const chips = p.tags.map((t) =>
+    const chips = p.tags.map((tag) =>
       h(
         "span",
         { class: "chip" },
-        `#${t}`,
-        h("button", { class: "chip-x", title: `Remover ${t}`, "aria-label": `Remover ${t}`, onclick: () => attempt(api.removeTag(p.id, t)) }, icon("close")),
+        `#${tag}`,
+        h("button", { class: "chip-x", title: t("tag.remove", { tag }), "aria-label": t("tag.remove", { tag }), onclick: () => attempt(api.removeTag(p.id, tag)) }, icon("close")),
       ),
     );
 
@@ -137,27 +138,27 @@ export class Viewer {
       "button",
       { class: "select", onclick: () => this.albumMenu(albumButton, p) },
       icon("folder"),
-      h("span", {}, p.album ?? "Sem álbum"),
+      h("span", {}, p.album ?? t("album.none")),
       icon("down"),
     );
 
     this.panel.replaceChildren(
-      h("header", { class: "viewer-head" }, title, h("p", { class: "viewer-meta" }, when.format(new Date(p.capturedAt)), h("span", { class: "viewer-pos" }, `${index + 1} de ${list.length}`))),
+      h("header", { class: "viewer-head" }, title, h("p", { class: "viewer-meta" }, when.format(new Date(p.capturedAt)), h("span", { class: "viewer-pos" }, t("viewer.position", { index: index + 1, total: list.length })))),
       h(
         "div",
         { class: "actions" },
-        action("copy", "Copiar", () => this.copy(p)),
-        action("reveal", "Abrir na pasta", () => attempt(api.revealPrint(p.id))),
-        action("pencil", "Renomear", () => {
+        action("copy", t("action.copy"), () => this.copy(p)),
+        action("reveal", t("action.reveal"), () => attempt(api.revealPrint(p.id))),
+        action("pencil", t("action.rename"), () => {
           this.renaming = true;
           this.render();
         }),
-        action("star", p.favorite ? "Favorito" : "Favoritar", () => attempt(api.setFavorite([p.id], !p.favorite)), p.favorite ? "on" : ""),
+        action("star", p.favorite ? t("viewer.isFavorite") : t("action.favorite"), () => attempt(api.setFavorite([p.id], !p.favorite)), p.favorite ? "on" : ""),
       ),
-      h("section", { class: "field" }, h("h3", { class: "field-label" }, "Álbum"), albumButton),
-      h("section", { class: "field" }, h("h3", { class: "field-label" }, "Etiquetas"), h("div", { class: "chips" }, ...chips, this.tagInput)),
+      h("section", { class: "field" }, h("h3", { class: "field-label" }, t("viewer.album")), albumButton),
+      h("section", { class: "field" }, h("h3", { class: "field-label" }, t("viewer.tags")), h("div", { class: "chips" }, ...chips, this.tagInput)),
       h("div", { class: "viewer-spacer" }),
-      h("button", { class: "btn btn-danger-soft", onclick: () => this.delete() }, icon("trash"), "Apagar"),
+      h("button", { class: "btn btn-danger-soft", onclick: () => this.delete() }, icon("trash"), t("action.delete")),
     );
     if (refocusTags) this.tagInput.focus();
   }
@@ -167,18 +168,18 @@ export class Viewer {
     showMenuBelow(anchor, [
       ...albums.map((a) => ({ label: a, icon: "folder" as const, checked: p.album === a, action: () => attempt(api.moveToAlbum([p.id], a)) })),
       ...(albums.length ? ["-" as const] : []),
-      { label: "Sem álbum", checked: p.album === null, action: () => attempt(api.removeFromAlbum([p.id])) },
+      { label: t("album.none"), checked: p.album === null, action: () => attempt(api.removeFromAlbum([p.id])) },
     ]);
   }
 
   private async copy(p: Print): Promise<void> {
-    if (await attempt(api.copyPrint(p.id))) toast("Copiado para a área de transferência");
+    if (await attempt(api.copyPrint(p.id))) toast(t("copy.done"));
   }
 
   private async delete(): Promise<void> {
     const p = this.current();
     if (!p) return;
-    const ok = await confirmDialog({ title: "Mover 1 print(s) para a Lixeira?", confirm: "Mover para a Lixeira", danger: true });
+    const ok = await confirmDialog({ title: tn("trash.confirm", 1), confirm: t("trash.confirmButton"), danger: true });
     if (!ok) return;
     const list = this.host.prints();
     const neighbor = list[list.indexOf(p) + 1] ?? list[list.indexOf(p) - 1];

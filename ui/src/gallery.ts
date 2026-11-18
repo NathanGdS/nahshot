@@ -6,7 +6,8 @@
 import "./theme.css";
 import * as api from "./api";
 import type { Filter, Print, Sidebar } from "./api";
-import { groupByDay, type Order } from "./group";
+import { groupByDay, type DayLabels, type Order } from "./group";
+import { locale, localizeDocument, t, tn } from "./i18n";
 import { icon, type IconName } from "./icons";
 import { DRAG_TYPE, SidebarView } from "./sidebar";
 import { applyTheme } from "./theme";
@@ -15,6 +16,7 @@ import { attempt, confirmDialog, h, inlineInput, showMenu, showMenuBelow, toast,
 import { Viewer } from "./viewer";
 
 applyTheme();
+localizeDocument();
 
 const state = {
   filter: { kind: "all" } as Filter,
@@ -64,12 +66,12 @@ async function reload(): Promise<void> {
     order: state.order === "newest" ? "newestFirst" : "oldestFirst",
   } as const;
   const [prints, side] = await Promise.all([api.listPrints(query), api.getSidebar()]).catch((e) => {
-    toast(`Não foi possível carregar a galeria: ${api.friendlyError(e)}`, "error");
+    toast(t("gallery.loadFailed", { error: api.friendlyError(e) }), "error");
     return [null, null] as const;
   });
   if (seq !== loadSeq || !prints || !side) return;
 
-  // A filter whose album or tag vanished falls back to "Todos".
+  // A filter whose album or tag vanished falls back to "All".
   const f = state.filter;
   if ((f.kind === "album" && !side.albums.includes(f.value)) || (f.kind === "tag" && !side.tags.includes(f.value))) {
     state.filter = { kind: "all" };
@@ -77,7 +79,7 @@ async function reload(): Promise<void> {
   }
 
   state.sidebar = side;
-  const groups = groupByDay(prints, new Date(), state.order);
+  const groups = groupByDay(prints, new Date(), state.order, dayLabels);
   state.prints = groups.flatMap((g) => g.items);
   const ids = new Set(state.prints.map((p) => p.id));
   for (const id of state.selected) if (!ids.has(id)) state.selected.delete(id);
@@ -117,14 +119,16 @@ function scheduleReload(): void {
 
 // ---- grid ------------------------------------------------------------------
 
+const dayLabels: DayLabels = { today: t("date.today"), yesterday: t("date.yesterday"), locale: locale() };
+
 const filterTitle = (f: Filter) =>
-  f.kind === "all" ? "Todos" : f.kind === "favorites" ? "Favoritos" : f.kind === "album" ? f.value : `#${f.value}`;
+  f.kind === "all" ? t("filter.all") : f.kind === "favorites" ? t("filter.favorites") : f.kind === "album" ? f.value : `#${f.value}`;
 
 function renderGrid(groups: { label: string; items: Print[] }[]): void {
   const scroll = content.scrollTop;
   title.textContent = filterTitle(state.filter);
   const count = state.prints.length;
-  $<HTMLElement>("#subtitle").textContent = count === 1 ? "1 print" : `${count} prints`;
+  $<HTMLElement>("#subtitle").textContent = tn("gallery.count", count);
 
   state.days = groups.map((g) => g.items.map((p) => p.id));
   if (!groups.length) {
@@ -141,7 +145,7 @@ function renderGrid(groups: { label: string; items: Print[] }[]): void {
           { class: "day-label" },
           h(
             "button",
-            { class: "day-check", type: "button", "data-day": String(i), title: `Selecionar todos de ${g.label.toLowerCase()}`, "aria-label": `Selecionar todos de ${g.label}` },
+            { class: "day-check", type: "button", "data-day": String(i), title: t("gallery.selectDay", { day: g.label }), "aria-label": t("gallery.selectDay", { day: g.label }) },
             icon("check"),
           ),
           g.label,
@@ -160,13 +164,11 @@ function emptyState(): HTMLElement {
     "div",
     { class: "empty" },
     icon(filtered ? "search" : "photos"),
-    h("h2", {}, filtered ? "Nada encontrado" : "Nenhum print ainda"),
+    h("h2", {}, filtered ? t("gallery.empty.filteredTitle") : t("gallery.empty.title")),
     h(
       "p",
       {},
-      filtered
-        ? "Tente outra busca ou escolha outro filtro na barra lateral."
-        : "Use o atalho de captura ou o menu da bandeja para tirar o primeiro print.",
+      filtered ? t("gallery.empty.filteredBody") : t("gallery.empty.body"),
     ),
   );
 }
@@ -175,7 +177,7 @@ function tile(p: Print): HTMLElement {
   const badges = h(
     "div",
     { class: "tile-badges" },
-    p.favorite ? h("span", { class: "badge badge-star", title: "Favorito" }, icon("star", true)) : null,
+    p.favorite ? h("span", { class: "badge badge-star", title: t("gallery.favorite") }, icon("star", true)) : null,
     p.album ? h("span", { class: "badge" }, icon("folder"), p.album) : null,
     ...p.tags.slice(0, 2).map((t) => h("span", { class: "badge" }, `#${t}`)),
   );
@@ -190,7 +192,7 @@ function tile(p: Print): HTMLElement {
     },
     // Without a cached thumbnail the tile shows its placeholder until `fillThumbs` gets one.
     h("img", { src: p.thumb ? api.fileSrc(p.thumb) : null, alt: p.fileName, loading: "lazy", decoding: "async", draggable: "false" }),
-    h("span", { class: "tile-check", title: "Selecionar" }, icon("check")),
+    h("span", { class: "tile-check", title: t("gallery.select") }, icon("check")),
     badges,
     h("figcaption", { class: "tile-name" }, p.fileName),
   );
@@ -275,7 +277,7 @@ grid.addEventListener("dragstart", (e) => {
   const ids = [...state.selected];
   e.dataTransfer.setData(DRAG_TYPE, JSON.stringify(ids));
   e.dataTransfer.effectAllowed = "move";
-  const ghost = h("div", { class: "drag-ghost" }, icon("photos"), ids.length === 1 ? "1 print" : `${ids.length} prints`);
+  const ghost = h("div", { class: "drag-ghost" }, icon("photos"), tn("gallery.count", ids.length));
   document.body.append(ghost);
   e.dataTransfer.setDragImage(ghost, 16, 16);
   requestAnimationFrame(() => ghost.remove());
@@ -284,7 +286,7 @@ grid.addEventListener("dragstart", (e) => {
 // ---- selection actions -------------------------------------------------------
 
 const selectedPrints = () => state.prints.filter((p) => state.selected.has(p.id));
-const countLabel = (n: number) => (n === 1 ? "1 selecionado" : `${n} selecionados`);
+const countLabel = (n: number) => tn("gallery.selected", n);
 
 /** Where a follow-up popup opens: under a button, or at the context menu's spot. */
 type Spot = HTMLElement | { x: number; y: number };
@@ -307,7 +309,7 @@ function albumMenu(spot: Spot): void {
   popupAt(spot, [
     ...albums.map((a) => ({ label: a, icon: "folder" as const, checked: allIn(a), action: () => attempt(api.moveToAlbum(ids, a)) })),
     ...(albums.length ? ["-" as const] : []),
-    { label: "Sem álbum", checked: allIn(null), action: () => attempt(api.removeFromAlbum(ids)) },
+    { label: t("album.none"), checked: allIn(null), action: () => attempt(api.removeFromAlbum(ids)) },
   ]);
 }
 
@@ -319,20 +321,20 @@ function tagPopover(spot: Spot): void {
   const ids = [...state.selected];
   if (!ids.length) return;
   const apply = async (tag: string) => {
-    const t = tag.trim();
-    if (!t) throw new Error("invalid name: name is empty");
-    await api.addTag(ids, t);
-    toast(ids.length === 1 ? `Etiqueta #${t} adicionada` : `Etiqueta #${t} adicionada a ${ids.length} prints`);
+    const name = tag.trim();
+    if (!name) throw new Error("invalid name: name is empty");
+    await api.addTag(ids, name);
+    toast(tn("tag.added", ids.length, { tag: name }));
   };
-  const field = inlineInput({ placeholder: "Nova etiqueta…", submit: apply, done: () => closePopover?.() });
-  const shortcuts = state.sidebar.tags.slice(0, 12).map((t) =>
+  const field = inlineInput({ placeholder: t("tag.new"), submit: apply, done: () => closePopover?.() });
+  const shortcuts = state.sidebar.tags.slice(0, 12).map((tag) =>
     // Pressing a chip must not blur the field first: an unchanged field closes the box on blur.
-    h("button", { class: "chip chip-btn", type: "button", onmousedown: (e: MouseEvent) => e.preventDefault(), onclick: () => attempt(apply(t)).then((ok) => ok && closePopover?.()) }, `#${t}`),
+    h("button", { class: "chip chip-btn", type: "button", onmousedown: (e: MouseEvent) => e.preventDefault(), onclick: () => attempt(apply(tag)).then((ok) => ok && closePopover?.()) }, `#${tag}`),
   );
   const box = h(
     "div",
-    { class: "popover", role: "dialog", "aria-label": "Adicionar etiqueta" },
-    h("p", { class: "popover-title" }, ids.length === 1 ? "Etiqueta para 1 print" : `Etiqueta para ${ids.length} prints`),
+    { class: "popover", role: "dialog", "aria-label": t("action.addTag") },
+    h("p", { class: "popover-title" }, tn("tag.for", ids.length)),
     field,
     shortcuts.length ? h("div", { class: "chips popover-chips" }, ...shortcuts) : null,
   );
@@ -369,7 +371,7 @@ function tagPopover(spot: Spot): void {
 
 async function copySelected(): Promise<void> {
   const [id] = state.selected;
-  if (state.selected.size === 1 && (await attempt(api.copyPrint(id)))) toast("Copiado para a área de transferência");
+  if (state.selected.size === 1 && (await attempt(api.copyPrint(id)))) toast(t("copy.done"));
 }
 
 function revealSelected(): void {
@@ -389,18 +391,18 @@ function selectionMenu(spot: { x: number; y: number }): MenuItem[] {
   const items: MenuItem[] = [];
   if (single) {
     items.push(
-      { label: "Abrir", icon: "photos", action: () => viewer.open(single.id) },
-      { label: "Copiar", icon: "copy", action: copySelected },
-      { label: "Abrir na pasta", icon: "reveal", action: revealSelected },
+      { label: t("action.open"), icon: "photos", action: () => viewer.open(single.id) },
+      { label: t("action.copy"), icon: "copy", action: copySelected },
+      { label: t("action.reveal"), icon: "reveal", action: revealSelected },
       "-",
     );
   }
   items.push(
-    { label: fav ? "Favoritar" : "Desfavoritar", icon: "star", action: toggleFavorite },
-    { label: "Mover para álbum…", icon: "folder", action: () => albumMenu(spot) },
-    { label: "Adicionar etiqueta…", icon: "hash", action: () => tagPopover(spot) },
+    { label: fav ? t("action.favorite") : t("action.unfavorite"), icon: "star", action: toggleFavorite },
+    { label: t("action.moveToAlbumMenu"), icon: "folder", action: () => albumMenu(spot) },
+    { label: t("action.addTagMenu"), icon: "hash", action: () => tagPopover(spot) },
     "-",
-    { label: single ? "Apagar" : `Apagar ${prints.length} prints`, icon: "trash", danger: true, action: deleteSelected },
+    { label: single ? t("action.delete") : t("action.deleteCount", { count: prints.length }), icon: "trash", danger: true, action: deleteSelected },
   );
   return items;
 }
@@ -433,18 +435,18 @@ function renderSelbar(): void {
   const children = [
     h(
       "button",
-      { class: "btn btn-ghost selbar-close", type: "button", title: "Limpar seleção (Esc)", "aria-label": "Limpar seleção", onclick: () => setSelection(new Set()) },
+      { class: "btn btn-ghost selbar-close", type: "button", title: t("selection.clearHint"), "aria-label": t("selection.clear"), onclick: () => setSelection(new Set()) },
       icon("close"),
     ),
     h("span", { class: "selbar-count", role: "status" }, countLabel(prints.length)),
-    all ? null : h("button", { class: "btn btn-ghost selbar-all", type: "button", title: "Selecionar tudo (Ctrl+A)", onclick: selectAll }, "Selecionar tudo"),
+    all ? null : h("button", { class: "btn btn-ghost selbar-all", type: "button", title: t("selection.allHint"), onclick: selectAll }, t("selection.all")),
     h("span", { class: "selbar-spacer" }),
-    action("star", fav ? "Favoritar" : "Desfavoritar", toggleFavorite, { filled: !fav }),
-    action("folder", "Mover p/ álbum", (b) => albumMenu(b), { hint: "Mover para álbum" }),
-    action("hash", "Etiqueta", (b) => tagPopover(b), { hint: "Adicionar etiqueta" }),
-    single ? action("copy", "Copiar", copySelected) : null,
-    single ? action("reveal", "Pasta", revealSelected, { hint: "Abrir na pasta" }) : null,
-    action("trash", "Apagar", deleteSelected, { danger: true, hint: "Mover para a Lixeira (Delete)" }),
+    action("star", fav ? t("action.favorite") : t("action.unfavorite"), toggleFavorite, { filled: !fav }),
+    action("folder", t("action.moveToAlbumShort"), (b) => albumMenu(b), { hint: t("action.moveToAlbum") }),
+    action("hash", t("action.tagShort"), (b) => tagPopover(b), { hint: t("action.addTag") }),
+    single ? action("copy", t("action.copy"), copySelected) : null,
+    single ? action("reveal", t("action.revealShort"), revealSelected, { hint: t("action.reveal") }) : null,
+    action("trash", t("action.delete"), deleteSelected, { danger: true, hint: t("action.trashHint") }),
   ];
   selbar.replaceChildren(...children.filter((c) => c !== null));
 }
@@ -598,8 +600,8 @@ search.addEventListener("input", () => {
 
 function paintSort(): void {
   const newest = state.order === "newest";
-  sortButton.textContent = newest ? "Mais novo ↓" : "Mais velho ↑";
-  sortButton.title = newest ? "Mostrando do mais novo pro mais velho" : "Mostrando do mais velho pro mais novo";
+  sortButton.textContent = newest ? t("sort.newest") : t("sort.oldest");
+  sortButton.title = newest ? t("sort.newestHint") : t("sort.oldestHint");
 }
 sortButton.addEventListener("click", () => {
   state.order = state.order === "newest" ? "oldest" : "newest";
@@ -612,7 +614,7 @@ sortButton.addEventListener("click", () => {
 async function deleteSelected(): Promise<void> {
   const ids = [...state.selected];
   if (!ids.length) return;
-  const ok = await confirmDialog({ title: `Mover ${ids.length === 1 ? "1 print" : `${ids.length} prints`} para a Lixeira?`, confirm: "Mover para a Lixeira", danger: true });
+  const ok = await confirmDialog({ title: tn("trash.confirm", ids.length), confirm: t("trash.confirmButton"), danger: true });
   if (ok && (await attempt(api.deletePrints(ids)))) state.selected.clear();
 }
 

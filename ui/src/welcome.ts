@@ -3,9 +3,11 @@
 import "./theme.css";
 import "./pages.css";
 import { finishWelcome, friendlyError } from "./api";
+import { localizeDocument, t } from "./i18n";
 import { applyTheme } from "./theme";
 
 applyTheme();
+localizeDocument();
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 const yes = $<HTMLButtonElement>("#yes");
@@ -19,7 +21,7 @@ async function answer(enableDefault: boolean): Promise<void> {
   try {
     await finishWelcome(enableDefault);
   } catch (e) {
-    error.textContent = `Não foi possível ativar: ${friendlyError(e)}`;
+    error.textContent = t("welcome.failed", { error: friendlyError(e) });
     yes.disabled = later.disabled = false;
   }
 }

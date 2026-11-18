@@ -6,7 +6,8 @@ const pages = ["gallery", "settings", "welcome"];
 
 export default defineConfig({
   clearScreen: false,
-  server: { port: 5173, strictPort: true },
+  // The texts live in ../locales, shared with the Rust side.
+  server: { port: 5173, strictPort: true, fs: { allow: [".."] } },
   build: {
     target: "es2022",
     outDir: "dist",
