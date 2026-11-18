@@ -29,14 +29,15 @@ Requirements: Windows 10/11 64-bit with the WebView2 Runtime (bundled with Windo
 **Gallery**
 - Thumbnail grid grouped by day (Today, Yesterday, dates), newest first, with an option to reverse.
 - Search by name, tag or album.
-- Albums (real folders on disk), tags and favorites.
+- Albums (real folders on disk, under `Albums\`), tags and favorites.
 - Viewer with copy, show in Explorer, rename (renames the file), favorite, move to album, tag and delete (goes to the Recycle Bin).
 - Multi-select (`Ctrl`/`Shift`+click) and drag onto an album.
 - The folder is the source of truth: a PNG added or deleted in Explorer appears in or disappears from the gallery on its own.
 
 **App**
 - Lives in the system tray, starts with Windows (configurable) and runs as a single instance.
-- Settings: screenshots folder (with an option to move existing ones), start with Windows, Print Screen as default, hotkey, light/dark theme, and update check.
+- Settings: screenshots folder (with an option to move existing ones), start with Windows, Print Screen as default, hotkey, light/dark theme, language, and update check.
+- English, Portuguese and Spanish. By default it follows the Windows display language (English when that is not one of them).
 - Auto-update from GitHub Releases, with signed installers.
 - 100% local: your screenshots never leave your machine. The only network access is the update check against GitHub.
 
@@ -50,15 +51,16 @@ Under the hood it uses `tauri-plugin-updater`: the app reads `latest.json` from 
 
 ## Architecture
 
-A Cargo workspace with three crates:
+A Cargo workspace with four crates:
 
 | Crate | Role |
 |---|---|
 | `crates/nahshot-core` | UI-free domain: file names, screenshot library (PNG + SQLite via `rusqlite`), albums as folders, folder sync, file watcher (`notify`), thumbnail cache and screenshots-folder relocation. |
 | `crates/nahshot-capture` | Native capture: grabs the monitors (`xcap`), draws the selection and annotation overlay (`winit` + `softbuffer` + `tiny-skia`, text via `fontdue`), global hotkey and a low-level keyboard hook for Print Screen. |
+| `crates/nahshot-i18n` | The app's texts: embeds `locales/{en,pt,es}.json` (shared with the web UI), keeps the current language and detects the Windows one. |
 | `src-tauri` (package `nahshot`) | The Tauri v2 app: tray, settings, capture flow (PNG → library → clipboard / Save as), gallery commands, updater and windows. |
 
-The gallery, settings and welcome UI lives in `ui/` (plain TypeScript + Vite, no framework).
+The gallery, settings and welcome UI lives in `ui/` (plain TypeScript + Vite, no framework). Texts live in `locales/`: adding a language is one more JSON file there plus its entry in `nahshot-i18n` and `ui/src/i18n.ts`; a test fails if any language misses a key.
 
 **Why a native overlay?** The goal is for the overlay to appear in under ~150 ms after Print Screen and for the app to use under ~30 MB while idle. Spinning up a WebView2 on every capture is too slow, and keeping one pre-warmed would cost ~198 MB of RAM all the time (that's what the open gallery uses, summing the WebView2 processes). So the overlay is one `winit` window per monitor painting straight into a software buffer with `tiny-skia`, on its own thread that also serves the keyboard hook. WebView2 only exists while the gallery (or settings) is open. Close the window and the WebView2 processes exit, bringing the app back to its tray footprint.
 
