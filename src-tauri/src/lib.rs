@@ -15,14 +15,14 @@ use nahshot_capture::overlay::spawn_overlay;
 use nahshot_core::library::Library;
 use nahshot_core::watch::{watch, LibraryWatcher};
 use nahshot_core::ThumbCache;
-use settings::Settings;
+use settings::{Language, Settings};
 use state::AppState;
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 use tauri::{AppHandle, Manager, RunEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
-/// Builds and runs the app until "Sair" is chosen in the tray.
+/// Builds and runs the app until "Quit" is chosen in the tray.
 ///
 /// # Panics
 /// If the Tauri runtime cannot start or the library database cannot be opened.
@@ -63,6 +63,7 @@ pub fn run() {
             settings_commands::set_default_print_screen,
             settings_commands::set_alt_hotkey,
             settings_commands::set_theme,
+            settings_commands::set_language,
             settings_commands::pick_prints_dir,
             settings_commands::change_prints_dir,
             settings_commands::finish_welcome,
@@ -86,6 +87,10 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let paths = app.path();
     let settings_path = paths.app_config_dir()?.join("settings.json");
     let settings = Settings::load(&settings_path);
+    // Before anything shows text: tray, windows, overlay, dialogs.
+    let lang = settings.language.resolve();
+    nahshot_i18n::set_lang(lang);
+    info!("language {}", lang.code());
     let data_dir = paths.app_local_data_dir()?;
     std::fs::create_dir_all(&data_dir)?;
     match sync_autostart(app, settings.autostart) {
@@ -130,6 +135,18 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     }
     updater::check_on_startup(app);
     Ok(())
+}
+
+/// Makes `language` the app's language everywhere: texts drawn from now on, the
+/// tray menu and the open windows (reloaded in it).
+pub(crate) fn apply_language(app: &AppHandle, language: Language) {
+    let lang = language.resolve();
+    nahshot_i18n::set_lang(lang);
+    info!("language {}", lang.code());
+    if let Err(e) = tray::refresh(app) {
+        error!("tray menu: {e}");
+    }
+    windows::relocalize(app);
 }
 
 /// Watches the prints folder, creating it first. Failures are only logged: the app

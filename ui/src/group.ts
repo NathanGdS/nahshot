@@ -9,7 +9,12 @@ export interface DayGroup<T> {
   items: T[];
 }
 
-const longDate = new Intl.DateTimeFormat("pt-BR", { day: "numeric", month: "long", year: "numeric" });
+/** How day headings read: the words for today and yesterday, and the `Intl` locale for other dates. */
+export interface DayLabels {
+  today: string;
+  yesterday: string;
+  locale: string;
+}
 
 /** `YYYY-MM-DD` of a local date. */
 function dayKey(d: Date): string {
@@ -17,11 +22,11 @@ function dayKey(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** "Hoje", "Ontem" or the long pt-BR date for a `YYYY-MM-DD` key. */
-function labelFor(key: string, now: Date): string {
+/** Today, yesterday or the long date for a `YYYY-MM-DD` key. */
+function labelFor(key: string, now: Date, labels: DayLabels, longDate: Intl.DateTimeFormat): string {
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  if (key === dayKey(now)) return "Hoje";
-  if (key === dayKey(yesterday)) return "Ontem";
+  if (key === dayKey(now)) return labels.today;
+  if (key === dayKey(yesterday)) return labels.yesterday;
   const [y, m, d] = key.split("-").map(Number);
   return longDate.format(new Date(y, m - 1, d));
 }
@@ -30,7 +35,13 @@ function labelFor(key: string, now: Date): string {
  * Groups prints by the local day of `capturedAt` (ISO `YYYY-MM-DDTHH:MM:SS`),
  * sorting both the groups and the items inside them in `order`.
  */
-export function groupByDay<T extends { capturedAt: string }>(prints: T[], now: Date, order: Order): DayGroup<T>[] {
+export function groupByDay<T extends { capturedAt: string }>(
+  prints: T[],
+  now: Date,
+  order: Order,
+  labels: DayLabels,
+): DayGroup<T>[] {
+  const longDate = new Intl.DateTimeFormat(labels.locale, { day: "numeric", month: "long", year: "numeric" });
   const sign = order === "newest" ? -1 : 1;
   const sorted = [...prints].sort((a, b) => sign * a.capturedAt.localeCompare(b.capturedAt));
   const groups = new Map<string, T[]>();
@@ -40,5 +51,5 @@ export function groupByDay<T extends { capturedAt: string }>(prints: T[], now: D
     if (items) items.push(p);
     else groups.set(key, [p]);
   }
-  return [...groups].map(([key, items]) => ({ label: labelFor(key, now), items }));
+  return [...groups].map(([key, items]) => ({ label: labelFor(key, now, labels, longDate), items }));
 }

@@ -9,6 +9,7 @@ fontdue = "0.9.5"
 global-hotkey = "0.9.0"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 log = "0.4.35"
+nahshot-i18n = { path = "../nahshot-i18n" }
 softbuffer = "0.4.8"
 thiserror = "2.0.21"
 tiny-skia = "0.12.0"

@@ -111,7 +111,7 @@ pub(crate) fn paint(
     draw_text(
         &mut canvas,
         title_at,
-        kind.title(),
+        &kind.title(),
         text(pal.title),
         TITLE_SIZE * s,
         &fonts.bold,
@@ -120,7 +120,7 @@ pub(crate) fn paint(
     draw_text(
         &mut canvas,
         sub_at,
-        kind.subtitle(),
+        &kind.subtitle(),
         text(pal.subtitle),
         sub_size,
         &fonts.regular,

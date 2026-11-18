@@ -1,6 +1,7 @@
 //! Pure toast logic: texts, colors, placement and the animation timeline.
 
 use crate::geom::PxRect;
+use nahshot_i18n::t;
 use std::time::Duration;
 use tiny_skia::Color;
 
@@ -14,14 +15,16 @@ pub enum ToastKind {
 }
 
 impl ToastKind {
-    pub fn title(self) -> &'static str {
-        "Print salvo"
+    /// The heading, in the current language.
+    pub fn title(self) -> String {
+        t("toast.title")
     }
 
-    pub fn subtitle(self) -> &'static str {
+    /// The line under the heading, in the current language.
+    pub fn subtitle(self) -> String {
         match self {
-            ToastKind::Copied => "Copiado · está na galeria",
-            ToastKind::Saved => "Está na galeria do nahshot",
+            ToastKind::Copied => t("toast.copied"),
+            ToastKind::Saved => t("toast.saved"),
         }
     }
 }
@@ -153,10 +156,11 @@ mod tests {
 
     #[test]
     fn texts() {
-        assert_eq!(ToastKind::Copied.title(), "Print salvo");
-        assert_eq!(ToastKind::Saved.title(), "Print salvo");
-        assert_eq!(ToastKind::Copied.subtitle(), "Copiado · está na galeria");
-        assert_eq!(ToastKind::Saved.subtitle(), "Está na galeria do nahshot");
+        // Tests never change the language, so it is the default, English.
+        assert_eq!(ToastKind::Copied.title(), "Screenshot saved");
+        assert_eq!(ToastKind::Saved.title(), "Screenshot saved");
+        assert_eq!(ToastKind::Copied.subtitle(), "Copied · it's in the gallery");
+        assert_eq!(ToastKind::Saved.subtitle(), "It's in the nahshot gallery");
     }
 
     #[test]

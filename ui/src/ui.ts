@@ -1,6 +1,7 @@
 /** Small DOM helpers and shared widgets: menus, confirm dialog, toasts, inline inputs. */
 
 import { friendlyError } from "./api";
+import { t } from "./i18n";
 import { icon, type IconName } from "./icons";
 
 type Child = Node | string | null | undefined | false;
@@ -140,7 +141,7 @@ export async function confirmDialog(opts: { title: string; body?: string; confir
     title: opts.title,
     body: opts.body,
     choices: [
-      { value: "cancel", label: "Cancelar" },
+      { value: "cancel", label: t("common.cancel") },
       { value: "ok", label: opts.confirm, kind: opts.danger ? "danger" : "primary" },
     ],
   });

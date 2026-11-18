@@ -231,12 +231,10 @@ pub(crate) fn tooltip_layout(
     b.at(x, y)
 }
 
-/// Shown until something is selected.
-const HINT: &str = "Arraste para selecionar \u{00B7} Duplo-clique ou F: tela inteira";
-
-/// Lays out the selection hint centered near the top of `screen`.
+/// Lays out the selection hint (shown until something is selected) centered near
+/// the top of `screen`.
 pub(crate) fn hint_layout(screen: PxRect, scale: f32, font: &Font) -> Bubble {
-    let b = Bubble::new(HINT.to_string(), scale, font);
+    let b = Bubble::new(nahshot_i18n::t("overlay.hint"), scale, font);
     let x = screen.x + (screen.w as i32 - b.rect.w as i32) / 2;
     let y = screen.y + 4 * b.gap();
     b.at(x.max(screen.x), y)

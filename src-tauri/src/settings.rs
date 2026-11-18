@@ -4,6 +4,7 @@ use log::warn;
 use nahshot_capture::hotkey::{parse_accelerator, HotkeyConfig};
 use nahshot_capture::overlay::OverlayHandle;
 use nahshot_capture::registry::{read_snipping, write_snipping, KEYBOARD_KEY};
+use nahshot_i18n::{system_lang, Lang};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -33,6 +34,29 @@ impl Theme {
     }
 }
 
+/// Language of the app. `System` follows Windows' display language.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Language {
+    #[default]
+    System,
+    En,
+    Pt,
+    Es,
+}
+
+impl Language {
+    /// The language to show: the chosen one, or Windows' (English if unsupported).
+    pub fn resolve(self) -> Lang {
+        match self {
+            Language::System => system_lang(),
+            Language::En => Lang::En,
+            Language::Pt => Lang::Pt,
+            Language::Es => Lang::Es,
+        }
+    }
+}
+
 /// Everything the user can configure. Missing fields take their default.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -46,6 +70,7 @@ pub struct Settings {
     /// Extra capture accelerator, e.g. `"Ctrl+Shift+S"`.
     pub alt_hotkey: String,
     pub theme: Theme,
+    pub language: Language,
     /// The welcome screen was already shown.
     pub first_run_done: bool,
     /// The Snipping Tool registry value found before nahshot took Print Screen.
@@ -63,6 +88,7 @@ impl Default for Settings {
             default_print_screen: false,
             alt_hotkey: DEFAULT_ALT_HOTKEY.to_owned(),
             theme: Theme::System,
+            language: Language::System,
             first_run_done: false,
             saved_snipping_value: None,
         }
@@ -226,6 +252,18 @@ mod tests {
             // SAFETY: `root` is a NUL-terminated UTF-16 string that outlives the call.
             unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, root.as_ptr()) };
         }
+    }
+
+    #[test]
+    fn language_defaults_to_system_for_old_settings() {
+        let old: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(old.language, Language::System);
+        let chosen: Settings = serde_json::from_str(r#"{"language":"es"}"#).unwrap();
+        assert_eq!(chosen.language, Language::Es);
+        assert_eq!(chosen.language.resolve(), Lang::Es);
+        assert_eq!(Language::Pt.resolve(), Lang::Pt);
+        let saved = serde_json::to_value(&chosen).unwrap();
+        assert_eq!(saved["language"], "es");
     }
 
     #[test]

@@ -2,6 +2,7 @@
 
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { t, type Lang } from "./i18n";
 
 /** A print with its thumbnail, as `list_prints` returns it. */
 export interface Print {
@@ -64,6 +65,9 @@ export const openSettings = () => invoke<void>("open_settings");
 
 export type Theme = "system" | "light" | "dark";
 
+/** `"system"` follows Windows' display language. */
+export type Language = "system" | Lang;
+
 /** The user's settings, as `get_settings` returns them. */
 export interface Settings {
   printsDir: string;
@@ -71,6 +75,7 @@ export interface Settings {
   defaultPrintScreen: boolean;
   altHotkey: string;
   theme: Theme;
+  language: Language;
   firstRunDone: boolean;
 }
 
@@ -85,6 +90,8 @@ export const setAutostart = (enabled: boolean) => invoke<void>("set_autostart", 
 export const setDefaultPrintScreen = (enabled: boolean) => invoke<void>("set_default_print_screen", { enabled });
 export const setAltHotkey = (accelerator: string) => invoke<string>("set_alt_hotkey", { accelerator });
 export const setTheme = (theme: Theme) => invoke<void>("set_theme", { theme });
+/** Saves the language; the app then reloads every window in it. */
+export const setLanguage = (language: Language) => invoke<void>("set_language", { language });
 export const pickPrintsDir = () => invoke<string | null>("pick_prints_dir");
 export const changePrintsDir = (path: string, moveExisting: boolean) =>
   invoke<ChangeDirReport>("change_prints_dir", { new: path, moveExisting });
@@ -117,25 +124,26 @@ export const onLibraryChanged = (cb: () => void): Promise<UnlistenFn> => listen(
 /** Webview URL of a file on disk. */
 export const fileSrc = (path: string) => convertFileSrc(path);
 
+/** `CoreError` "invalid name" reasons and the key of their explanation. */
 const reasons: [string, string][] = [
-  ["name is empty", "o nome está vazio"],
-  ["longer than 100", "o nome passa de 100 caracteres"],
-  ["forbidden character", "tire os caracteres \\ / : * ? \" < > |"],
-  ["ends with a dot", "o nome não pode terminar com ponto"],
-  ["reserved Windows name", "esse nome é reservado pelo Windows"],
+  ["name is empty", "error.reason.empty"],
+  ["longer than 100", "error.reason.tooLong"],
+  ["forbidden character", "error.reason.forbidden"],
+  ["ends with a dot", "error.reason.trailingDot"],
+  ["reserved Windows name", "error.reason.reserved"],
 ];
 
-/** Turns a command error (a `CoreError` message) into a short pt-BR sentence. */
+/** Turns a command error (a `CoreError` message) into a short sentence in the UI language. */
 export function friendlyError(err: unknown): string {
   const msg = String(err);
   if (msg.startsWith("invalid name")) {
     const hit = reasons.find(([en]) => msg.includes(en));
-    return hit ? `Nome inválido: ${hit[1]}.` : "Nome inválido.";
+    return hit ? t("error.invalidNameReason", { reason: t(hit[1]) }) : t("error.invalidName");
   }
-  if (msg.startsWith("album already exists")) return "Já existe um álbum com esse nome.";
-  if (msg.startsWith("album not found")) return "Esse álbum não existe mais.";
-  if (msg.startsWith("print not found")) return "Esse print não existe mais.";
-  if (msg.includes("invalid accelerator")) return "Essa combinação de teclas não pode ser usada.";
-  if (msg.startsWith("hotkey error")) return "Não foi possível registrar esse atalho; talvez outro programa já o use.";
+  if (msg.startsWith("album already exists")) return t("error.albumExists");
+  if (msg.startsWith("album not found")) return t("error.albumNotFound");
+  if (msg.startsWith("print not found")) return t("error.printNotFound");
+  if (msg.includes("invalid accelerator")) return t("error.invalidHotkey");
+  if (msg.startsWith("hotkey error")) return t("error.hotkeyTaken");
   return msg;
 }

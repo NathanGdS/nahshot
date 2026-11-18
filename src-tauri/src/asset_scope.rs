@@ -50,7 +50,7 @@ mod tests {
             Path::new(r"D:\novo\2026-11\a.png"),
             Path::new(r"D:\velho\2026-11\b.png"),
             Path::new(r"D:\velho\2026-11\c.png"),
-            Path::new(r"D:\velho\Álbuns\Bugs\d.png"),
+            Path::new(r"D:\velho\Albums\Bugs\d.png"),
             Path::new(r"D:\novo-irmao\e.png"),
         ];
         assert_eq!(
@@ -58,7 +58,7 @@ mod tests {
             vec![
                 PathBuf::from(r"D:\novo-irmao"),
                 PathBuf::from(r"D:\velho\2026-11"),
-                PathBuf::from(r"D:\velho\Álbuns\Bugs"),
+                PathBuf::from(r"D:\velho\Albums\Bugs"),
             ]
         );
     }

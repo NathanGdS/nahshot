@@ -20,7 +20,7 @@ impl Library {
     /// Switches the library to `new_root`.
     ///
     /// With `move_existing`, every print under the old root is moved to the same
-    /// relative place under the new one (`AAAA-MM\`, `Álbuns\<nome>\`). A print that
+    /// relative place under the new one (`YYYY-MM\`, `Albums\<name>\`). A print that
     /// cannot be moved is counted and left in place; nothing is ever overwritten or
     /// deleted. Prints outside the old root are not touched either way.
     pub fn relocate(&mut self, new_root: PathBuf, move_existing: bool) -> Result<RelocateReport> {
@@ -38,6 +38,8 @@ impl Library {
             }
         }
         self.root = new_root;
+        // The new root may be an old library with its albums still in `Álbuns`.
+        self.migrate_albums()?;
         Ok(report)
     }
 

@@ -58,7 +58,7 @@ fn sync_uses_mtime_when_name_has_no_timestamp() {
 #[test]
 fn sync_picks_up_prints_inside_album_folders() {
     let (_d, lib) = lib();
-    let a = lib.root().join("Álbuns").join("Memes");
+    let a = lib.root().join("Albums").join("Memes");
     std::fs::create_dir_all(&a).unwrap();
     std::fs::write(a.join("2026-10-01_08-00-00.png"), png()).unwrap();
     assert_eq!(lib.sync().unwrap().added, 1);
@@ -112,7 +112,7 @@ fn sync_keeps_prints_outside_current_root() {
 #[test]
 fn album_folder_created_in_explorer_shows_up() {
     let (_d, lib) = lib();
-    std::fs::create_dir_all(lib.root().join("Álbuns").join("Memes")).unwrap();
+    std::fs::create_dir_all(lib.root().join("Albums").join("Memes")).unwrap();
     assert_eq!(lib.albums().unwrap(), vec!["Memes".to_owned()]);
 }
 
@@ -274,7 +274,7 @@ fn moving_a_file_out_and_back_keeps_tags() {
     assert!(lib.query(&Query::default()).unwrap().is_empty());
     // Back in, but into an album folder this time.
     lib.create_album("Memes").unwrap();
-    let back = lib.root().join("Álbuns").join("Memes").join(&p.file_name);
+    let back = lib.root().join("Albums").join("Memes").join(&p.file_name);
     std::fs::rename(&outside, &back).unwrap();
     assert_eq!(
         lib.sync().unwrap(),
@@ -406,7 +406,7 @@ fn moving_a_file_inside_the_root_between_syncs_keeps_tags() {
     let p = lib.import_capture(&png(), t_at()).unwrap();
     lib.add_tag(&[p.id], "keep").unwrap();
     lib.create_album("Memes").unwrap();
-    let moved = lib.root().join("Álbuns").join("Memes").join(&p.file_name);
+    let moved = lib.root().join("Albums").join("Memes").join(&p.file_name);
     std::fs::rename(&p.path, &moved).unwrap();
     assert_eq!(
         lib.sync().unwrap(),

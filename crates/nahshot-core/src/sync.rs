@@ -14,7 +14,7 @@ use crate::library::{move_file, Library};
 use crate::naming::{month_dir, parse_captured_at};
 use crate::Result;
 
-/// Deepest level scanned: `root/month/file` and `root/Álbuns/name/file`.
+/// Deepest level scanned: `root/month/file` and `root/Albums/name/file`.
 const MAX_DEPTH: usize = 3;
 
 /// How long a print whose file is gone keeps its row (and tags) before sync forgets it.

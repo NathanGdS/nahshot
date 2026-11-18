@@ -6,6 +6,7 @@
 
 use crate::commands::CmdResult;
 use log::{error, info, warn};
+use nahshot_i18n::{t, tf};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter};
@@ -37,7 +38,7 @@ async fn find(app: &AppHandle) -> CmdResult<Option<Update>> {
         .map_err(|e| e.to_string())?
         .check()
         .await
-        .map_err(|e| format!("Não foi possível procurar atualizações: {e}"))
+        .map_err(|e| tf("update.checkFailed", &[("error", &e.to_string())]))
 }
 
 /// Checks in the background at startup and, if there is a newer version, asks
@@ -60,16 +61,18 @@ fn offer(app: &AppHandle, update: Update) {
     info!("update available: {}", update.version);
     let handle = app.clone();
     app.dialog()
-        .message(format!(
-            "A versão {} do nahshot está disponível (você tem a {}).\n\n\
-             O nahshot fecha, atualiza e abre de novo sozinho.",
-            update.version, update.current_version
+        .message(tf(
+            "update.available",
+            &[
+                ("version", &update.version),
+                ("current", &update.current_version),
+            ],
         ))
-        .title("Atualização do nahshot")
+        .title(t("update.title"))
         .kind(MessageDialogKind::Info)
         .buttons(MessageDialogButtons::OkCancelCustom(
-            "Atualizar agora".into(),
-            "Depois".into(),
+            t("update.now"),
+            t("update.later"),
         ))
         .show(move |accepted| {
             if accepted {
@@ -79,7 +82,7 @@ fn offer(app: &AppHandle, update: Update) {
                         handle
                             .dialog()
                             .message(e)
-                            .title("Atualização do nahshot")
+                            .title(t("update.title"))
                             .kind(MessageDialogKind::Error)
                             .show(|_| {});
                     }
@@ -91,7 +94,7 @@ fn offer(app: &AppHandle, update: Update) {
 /// Downloads, verifies and runs the installer. On success the process exits.
 async fn install(app: &AppHandle, update: Update) -> CmdResult<()> {
     if INSTALLING.swap(true, Ordering::SeqCst) {
-        return Err("A atualização já está em andamento.".into());
+        return Err(t("update.inProgress"));
     }
     info!("installing {}", update.version);
     let mut downloaded = 0u64;
@@ -113,7 +116,7 @@ async fn install(app: &AppHandle, update: Update) -> CmdResult<()> {
         .await;
     // Only reached if something failed: a successful install exits the process.
     INSTALLING.store(false, Ordering::SeqCst);
-    result.map_err(|e| format!("Não foi possível atualizar: {e}"))
+    result.map_err(|e| tf("update.failed", &[("error", &e.to_string())]))
 }
 
 /// Compares this version with the latest release.
@@ -131,10 +134,10 @@ pub async fn check_update(app: AppHandle) -> CmdResult<UpdateInfo> {
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> CmdResult<()> {
     if DEV_BUILD {
-        return Err("Build de desenvolvimento: não se atualiza.".into());
+        return Err(t("update.devBuild"));
     }
     match find(&app).await? {
         Some(update) => install(&app, update).await,
-        None => Err("Você já está na versão mais recente.".into()),
+        None => Err(t("update.upToDate")),
     }
 }
