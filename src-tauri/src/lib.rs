@@ -40,6 +40,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // No raw input for this process: while a window of a process registered for
+        // raw keyboard input has focus, Windows skips that process's low-level
+        // keyboard hook, so Print Screen did nothing over the gallery. Nothing here
+        // reads device events.
+        .device_event_filter(tauri::DeviceEventFilter::Always)
         .setup(|app| setup(app.handle()))
         .invoke_handler(tauri::generate_handler![
             commands::list_prints,

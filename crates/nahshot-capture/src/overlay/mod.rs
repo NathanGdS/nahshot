@@ -29,7 +29,7 @@ use window::{Context, MonitorWindow};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::event_loop::{ActiveEventLoop, DeviceEvents, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::platform::windows::EventLoopBuilderExtWindows;
@@ -114,6 +114,11 @@ pub fn spawn_overlay(on_result: impl Fn(CaptureResult) + Send + 'static) -> Over
                 .with_dpi_aware(true)
                 .build()
                 .expect("overlay event loop");
+            // Raw input is registered per process, and while any window of a process
+            // that registered it has focus, Windows skips that process's low-level
+            // keyboard hook: Print Screen would do nothing over our own windows.
+            // Nothing here reads device events, so turn them off.
+            event_loop.listen_device_events(DeviceEvents::Never);
             tx.send(event_loop.create_proxy())
                 .expect("spawn_overlay is waiting");
             let proxy = event_loop.create_proxy();
